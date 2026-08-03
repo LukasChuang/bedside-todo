@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>床邊待辦</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e7c86">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{
+  --ink:#1c2b3a; --ink-soft:#5a6b7c; --ground:#f6f7f6; --card:#ffffff;
+  --line:#dde3e6; --accent:#0e7c86; --accent-ink:#ffffff;
+  --pend:#c77800; --pend-bg:#fdf3e3; --done:#4a7c59; --done-bg:#eef4ef;
+  --danger:#b3402f; --input-bg:#f0f2f2;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --ink:#e8ecef; --ink-soft:#93a3b1; --ground:#141a20; --card:#1d252d;
+    --line:#313c46; --accent:#3db2bc; --accent-ink:#0c1418;
+    --pend:#e8a145; --pend-bg:#33270f; --done:#7dbb8e; --done-bg:#1c2a20;
+    --danger:#e07360; --input-bg:#141a20;
+  }
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html,body{margin:0; padding:0}
+body{
+  background:var(--ground); color:var(--ink);
+  font:16px/1.5 -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  padding-bottom:max(24px, env(safe-area-inset-bottom));
+}
+header{
+  position:sticky; top:0; z-index:10; background:var(--ground);
+  padding:calc(10px + env(safe-area-inset-top)) 16px 8px;
+  display:flex; align-items:baseline; gap:10px;
+  border-bottom:1px solid var(--line);
+}
+header h1{font-size:20px; font-weight:700; margin:0; letter-spacing:.02em}
+header .date{color:var(--ink-soft); font-size:14px}
+header .spacer{flex:1}
+header button{
+  border:0; background:none; color:var(--accent); font-size:15px; font-weight:600;
+  padding:6px 4px; cursor:pointer;
+}
+.summary{
+  padding:10px 16px 2px; font-size:14px; color:var(--ink-soft);
+}
+.summary b{color:var(--pend); font-variant-numeric:tabular-nums}
+.summary .all-clear{color:var(--done); font-weight:600}
+main{padding:8px 12px 40px; display:flex; flex-direction:column; gap:8px}
+.empty{
+  background:var(--card); border:1px dashed var(--line); border-radius:10px;
+  padding:28px 20px; text-align:center; color:var(--ink-soft);
+}
+.empty p{margin:0 0 16px}
+.empty button{
+  border:0; border-radius:8px; background:var(--accent); color:var(--accent-ink);
+  font-size:16px; font-weight:700; padding:12px 22px; cursor:pointer;
+}
+.bed{
+  background:var(--card); border:1px solid var(--line); border-radius:10px;
+  overflow:hidden;
+}
+.bed.has-pend{border-left:4px solid var(--pend)}
+.bed-head{
+  display:flex; align-items:center; gap:12px; padding:14px;
+  min-height:56px; cursor:pointer; user-select:none; -webkit-user-select:none;
+}
+.bed-no{
+  font-variant-numeric:tabular-nums; font-weight:700; font-size:19px;
+  letter-spacing:.03em; min-width:74px;
+}
+.bed-name{font-size:17px; flex:1}
+.badge{
+  min-width:28px; height:28px; border-radius:14px; padding:0 8px;
+  background:var(--pend-bg); color:var(--pend); font-weight:700; font-size:15px;
+  display:flex; align-items:center; justify-content:center;
+  font-variant-numeric:tabular-nums;
+}
+.badge.zero{background:none; color:var(--line); font-weight:400}
+.bed-body{display:none; padding:0 14px 14px; border-top:1px dashed var(--line)}
+.bed.open .bed-body{display:block}
+.todo{
+  display:flex; align-items:flex-start; gap:10px; padding:9px 0;
+}
+.todo + .todo{border-top:1px solid var(--line)}
+.todo .tick{
+  flex:none; width:26px; height:26px; margin-top:1px; border-radius:50%;
+  border:2px solid var(--pend); background:none; cursor:pointer; position:relative;
+}
+.todo.done .tick{border-color:var(--done); background:var(--done)}
+.todo.done .tick::after{
+  content:""; position:absolute; left:7px; top:3px; width:6px; height:11px;
+  border:solid var(--card); border-width:0 2.5px 2.5px 0; transform:rotate(45deg);
+}
+.todo .txt{flex:1; padding-top:2px; overflow-wrap:anywhere}
+.todo.done .txt{color:var(--ink-soft); text-decoration:line-through}
+.todo .ts{flex:none; font-size:12px; color:var(--ink-soft); padding-top:6px; font-variant-numeric:tabular-nums}
+.todo .del{
+  flex:none; border:0; background:none; color:var(--ink-soft); font-size:18px;
+  padding:2px 6px; cursor:pointer; line-height:1.2;
+}
+.done-sep{margin:6px 0 0; font-size:12px; color:var(--done); letter-spacing:.08em}
+.addrow{display:flex; gap:8px; margin-top:12px}
+.addrow input{
+  flex:1; font-size:16px; padding:11px 12px; border:1px solid var(--line);
+  border-radius:8px; background:var(--input-bg); color:var(--ink); outline:none;
+}
+.addrow input:focus{border-color:var(--accent)}
+.addrow button{
+  flex:none; border:0; border-radius:8px; background:var(--accent); color:var(--accent-ink);
+  font-size:16px; font-weight:700; padding:0 18px; cursor:pointer;
+}
+.chips{display:flex; gap:6px; flex-wrap:wrap; margin-top:8px}
+.chips button{
+  border:1px solid var(--line); background:none; color:var(--ink-soft);
+  border-radius:14px; font-size:13px; padding:5px 11px; cursor:pointer;
+}
+.chips button:active{background:var(--input-bg)}
+.clear-done{
+  margin-top:10px; border:0; background:none; color:var(--ink-soft);
+  font-size:13px; text-decoration:underline; cursor:pointer; padding:4px 0;
+}
+/* ── 設定面板 ─────────────────────── */
+#settings{
+  position:fixed; inset:0; z-index:20; background:var(--ground);
+  display:none; flex-direction:column; overflow:auto;
+  padding:calc(10px + env(safe-area-inset-top)) 16px 40px;
+}
+#settings.open{display:flex}
+#settings h2{font-size:18px; margin:6px 0 2px}
+#settings .hint{font-size:13px; color:var(--ink-soft); margin:2px 0 10px}
+.bedrow{
+  display:flex; align-items:center; gap:8px; padding:8px 0;
+  border-bottom:1px solid var(--line);
+}
+.bedrow input{
+  font-size:16px; padding:8px 10px; border:1px solid var(--line); border-radius:8px;
+  background:var(--card); color:var(--ink); min-width:0;
+}
+.bedrow .in-no{width:88px; font-variant-numeric:tabular-nums}
+.bedrow .in-name{flex:1}
+.bedrow .rm{
+  flex:none; border:0; background:none; color:var(--danger); font-size:20px;
+  padding:4px 8px; cursor:pointer;
+}
+.set-actions{display:flex; gap:10px; margin:14px 0}
+.set-actions button{
+  border:1px solid var(--line); background:var(--card); color:var(--ink);
+  border-radius:8px; font-size:15px; padding:10px 14px; cursor:pointer; font-weight:600;
+}
+.set-actions button.primary{background:var(--accent); color:var(--accent-ink); border-color:var(--accent)}
+#pastebox{
+  width:100%; min-height:110px; font-size:15px; padding:10px; margin-top:6px;
+  border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink);
+  font-variant-numeric:tabular-nums;
+}
+.danger-zone{margin-top:26px; border-top:1px solid var(--line); padding-top:14px}
+.danger-zone button{
+  border:1px solid var(--danger); color:var(--danger); background:none;
+  border-radius:8px; font-size:14px; padding:9px 14px; cursor:pointer; margin-right:10px;
+}
+@media (prefers-reduced-motion: no-preference){
+  .bed{transition:border-color .15s}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>床邊待辦</h1>
+  <span class="date" id="hdrDate"></span>
+  <span class="spacer"></span>
+  <button id="btnSettings">床位管理</button>
+</header>
+<div class="summary" id="summary"></div>
+<main id="list"></main>
+
+<div id="settings">
+  <h2>床位管理</h2>
+  <p class="hint">床號格式「室-床」;病人異動直接改這裡,所有資料只存在這支手機,不會上傳。</p>
+  <div id="bedEditor"></div>
+  <div class="set-actions">
+    <button id="btnAddBed">＋ 新增一床</button>
+    <button class="primary" id="btnSaveBeds">儲存並返回</button>
+  </div>
+  <h2>整批匯入</h2>
+  <p class="hint">從系統複製床位名單直接貼上(每行含床號與姓名,例:05W2 17 01 王小明),會取代整份清單;同床號同病人的待辦會保留。</p>
+  <textarea id="pastebox" placeholder="05W2 03 01 王小明&#10;05W2 03 03 陳大文&#10;…"></textarea>
+  <div class="set-actions">
+    <button id="btnImport">匯入取代清單</button>
+  </div>
+  <div class="danger-zone">
+    <button id="btnClearDoneAll">清除全部已完成</button>
+    <button id="btnWipe">清空所有待辦</button>
+  </div>
+</div>
+
+<script>
+const LS_KEY = 'bedside-todo-v1';
+const CHIPS = ['開 order','抽血','照會','影像','補病歷','家屬解釋'];
+
+let state = load();
+function load(){
+  try{
+    const s = JSON.parse(localStorage.getItem(LS_KEY));
+    if(s && Array.isArray(s.beds)) return s;
+  }catch(e){}
+  return { beds: [], openNo: null };
+}
+function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+
+function todayStr(d=new Date()){ return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
+function fmtTs(ts){
+  const d = new Date(ts);
+  const hm = String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  return todayStr(d)===todayStr() ? hm : (d.getMonth()+1)+'/'+d.getDate()+' '+hm;
+}
+
+/* ── 主畫面 ─────────────────────── */
+const listEl = document.getElementById('list');
+function render(){
+  const wd = '日一二三四五六'[new Date().getDay()];
+  document.getElementById('hdrDate').textContent =
+    (new Date().getMonth()+1)+'/'+new Date().getDate()+'('+wd+')';
+
+  if(!state.beds.length){
+    document.getElementById('summary').innerHTML = '';
+    listEl.innerHTML = `<div class="empty">
+      <p>還沒有床位名單。<br>從系統複製你的病人清單,一次貼上匯入;<br>或逐床手動輸入。</p>
+      <button id="btnSetup">設定床位</button>
+    </div>`;
+    document.getElementById('btnSetup').onclick = openSettings;
+    return;
+  }
+
+  let pendBeds=0, pendItems=0;
+  state.beds.forEach(b=>{
+    const n = b.todos.filter(t=>!t.done).length;
+    if(n){pendBeds++; pendItems+=n;}
+  });
+  document.getElementById('summary').innerHTML = pendItems
+    ? `<b>${pendBeds}</b> 床待辦,共 <b>${pendItems}</b> 項`
+    : `<span class="all-clear">✓ 全部完成,目前沒有待辦</span>`;
+
+  listEl.innerHTML='';
+  state.beds.forEach((b,bi)=>{
+    const pend = b.todos.filter(t=>!t.done);
+    const done = b.todos.filter(t=>t.done);
+    const card = document.createElement('div');
+    card.className = 'bed'+(pend.length?' has-pend':'')+(state.openNo===b.no?' open':'');
+    const [room,bed] = (b.no+'-').split('-');
+    card.innerHTML = `
+      <div class="bed-head">
+        <div class="bed-no">${room}-${bed}</div>
+        <div class="bed-name">${esc(b.name)}</div>
+        <div class="badge ${pend.length?'':'zero'}">${pend.length||'—'}</div>
+      </div>
+      <div class="bed-body">
+        ${pend.map(t=>todoHtml(bi,t)).join('')}
+        ${done.length?`<div class="done-sep">已完成</div>`+done.map(t=>todoHtml(bi,t)).join(''):''}
+        <div class="addrow">
+          <input type="text" placeholder="待辦事項…" enterkeyhint="done">
+          <button>加入</button>
+        </div>
+        <div class="chips">${CHIPS.map(c=>`<button data-chip>${c}</button>`).join('')}</div>
+        ${done.length?`<button class="clear-done">清除此床已完成(${done.length})</button>`:''}
+      </div>`;
+    card.querySelector('.bed-head').onclick = ()=>{
+      state.openNo = state.openNo===b.no ? null : b.no;
+      save(); render();
+      if(state.openNo===b.no){
+        const inp = listEl.querySelector('.bed.open input');
+        if(inp) inp.focus();
+      }
+    };
+    const input = card.querySelector('.addrow input');
+    const add = ()=>{
+      const v = input.value.trim();
+      if(!v) return;
+      b.todos.unshift({id:Date.now()+Math.random(), text:v, done:false, ts:Date.now()});
+      save(); render();
+      const inp = listEl.querySelector('.bed.open input');
+      if(inp) inp.focus();
+    };
+    card.querySelector('.addrow button').onclick = add;
+    input.onkeydown = e=>{ if(e.key==='Enter'||e.keyCode===13) add(); };
+    card.querySelectorAll('[data-chip]').forEach(ch=>{
+      ch.onclick = ()=>{
+        input.value = input.value ? input.value+' '+ch.textContent : ch.textContent+' ';
+        input.focus();
+      };
+    });
+    card.querySelectorAll('.todo').forEach(row=>{
+      const id = parseFloat(row.dataset.id);
+      const t = b.todos.find(x=>x.id===id);
+      row.querySelector('.tick').onclick = ()=>{
+        t.done=!t.done; t.doneTs=t.done?Date.now():null; save(); render();
+      };
+      row.querySelector('.del').onclick = ()=>{
+        if(!t.done && !confirm('刪除這項未完成的待辦?\n「'+t.text+'」')) return;
+        b.todos = b.todos.filter(x=>x.id!==id); save(); render();
+      };
+    });
+    const cd = card.querySelector('.clear-done');
+    if(cd) cd.onclick = ()=>{ b.todos=b.todos.filter(t=>!t.done); save(); render(); };
+    listEl.appendChild(card);
+  });
+}
+function todoHtml(bi,t){
+  return `<div class="todo ${t.done?'done':''}" data-id="${t.id}">
+    <button class="tick" aria-label="${t.done?'標回未完成':'完成'}"></button>
+    <div class="txt">${esc(t.text)}</div>
+    <div class="ts">${fmtTs(t.done&&t.doneTs?t.doneTs:t.ts)}</div>
+    <button class="del" aria-label="刪除">×</button>
+  </div>`;
+}
+function esc(s){ return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ── 設定 ─────────────────────── */
+const settingsEl = document.getElementById('settings');
+const bedEditor = document.getElementById('bedEditor');
+function openSettings(){
+  renderEditor(state.beds.map(b=>({no:b.no,name:b.name})));
+  settingsEl.classList.add('open');
+}
+document.getElementById('btnSettings').onclick = openSettings;
+function bedRowEl(no, name){
+  const div = document.createElement('div');
+  div.className='bedrow';
+  div.innerHTML = `
+    <input class="in-no" value="${esc(no)}" placeholder="17-01" inputmode="numeric">
+    <input class="in-name" value="${esc(name)}" placeholder="姓名">
+    <button class="rm" aria-label="移除">×</button>`;
+  div.querySelector('.rm').onclick = ()=>div.remove();
+  return div;
+}
+function renderEditor(rows){
+  bedEditor.innerHTML='';
+  rows.forEach(r=>bedEditor.appendChild(bedRowEl(r.no, r.name)));
+}
+document.getElementById('btnAddBed').onclick = ()=>{
+  const div = bedRowEl('','');
+  bedEditor.appendChild(div);
+  div.querySelector('.in-no').focus();
+};
+document.getElementById('btnSaveBeds').onclick = ()=>{
+  const rows = [...bedEditor.querySelectorAll('.bedrow')].map(d=>({
+    no: d.querySelector('.in-no').value.trim(),
+    name: d.querySelector('.in-name').value.trim(),
+  })).filter(r=>r.no);
+  applyBedList(rows);
+  settingsEl.classList.remove('open');
+};
+document.getElementById('btnImport').onclick = ()=>{
+  const lines = document.getElementById('pastebox').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  const rows=[];
+  for(const l of lines){
+    // 例:05W2 17 01 王小明 / 17 01 王小明 / 17-01 王小明
+    const m = l.match(/(\d{2})[\s-]+(\d{2})\s+([^\s\d]+)/);
+    if(m) rows.push({no:m[1]+'-'+m[2], name:m[3].replace(/\[.*?\]/g,'')});
+  }
+  if(!rows.length){ alert('看不懂貼上的內容,每行需含「室 床 姓名」'); return; }
+  if(!confirm('匯入 '+rows.length+' 床,取代目前清單?')) return;
+  applyBedList(rows);
+  document.getElementById('pastebox').value='';
+  settingsEl.classList.remove('open');
+};
+function applyBedList(rows){
+  const old = Object.fromEntries(state.beds.map(b=>[b.no,b]));
+  state.beds = rows.map(r=>({
+    no:r.no, name:r.name,
+    // 同床號且同姓名 → 保留原待辦;換病人 → 清空
+    todos:(old[r.no] && old[r.no].name===r.name) ? old[r.no].todos : [],
+  }));
+  save(); render();
+}
+document.getElementById('btnClearDoneAll').onclick = ()=>{
+  state.beds.forEach(b=>b.todos=b.todos.filter(t=>!t.done));
+  save(); render(); settingsEl.classList.remove('open');
+};
+document.getElementById('btnWipe').onclick = ()=>{
+  if(!confirm('清空所有床的全部待辦(含未完成)?此動作無法復原。')) return;
+  state.beds.forEach(b=>b.todos=[]);
+  save(); render(); settingsEl.classList.remove('open');
+};
+
+render();
+
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./sw.js');
+}
+</script>
+</body>
+</html>
