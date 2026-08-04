@@ -102,6 +102,8 @@ main{padding:8px 12px 40px; display:flex; flex-direction:column; gap:8px}
   padding:2px 6px; cursor:pointer; line-height:1.2;
 }
 .done-sep{margin:6px 0 0; font-size:12px; color:var(--done); letter-spacing:.08em}
+.syncline{padding:2px 16px 0; font-size:12px; color:var(--ink-soft); min-height:16px}
+.syncline.err{color:var(--danger)}
 .addrow{display:flex; gap:8px; margin-top:12px}
 .addrow input{
   flex:1; font-size:16px; padding:11px 12px; border:1px solid var(--line);
@@ -175,6 +177,7 @@ main{padding:8px 12px 40px; display:flex; flex-direction:column; gap:8px}
   <button id="btnSettings">床位管理</button>
 </header>
 <div class="summary" id="summary"></div>
+<div class="syncline" id="syncStatus"></div>
 <main id="list"></main>
 
 <div id="settings">
@@ -191,6 +194,10 @@ main{padding:8px 12px 40px; display:flex; flex-direction:column; gap:8px}
   <div class="set-actions">
     <button id="btnImport">匯入取代清單</button>
   </div>
+  <h2>同步到 Word Table</h2>
+  <p class="hint">填入 Mac 上 WT 的網址(手機需開著 Tailscale),之後每次改動會自動把各床「未完成」待辦寫進 WT 筆記欄;清空此欄位即停用。網址只存在這支手機。</p>
+  <input id="syncUrlInput" type="url" placeholder="https://xxx.ts.net" autocapitalize="off" autocorrect="off"
+         style="width:100%; font-size:15px; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink)">
   <div class="danger-zone">
     <button id="btnClearDoneAll">清除全部已完成</button>
     <button id="btnWipe">清空所有待辦</button>
@@ -209,7 +216,55 @@ function load(){
   }catch(e){}
   return { beds: [], openNo: null };
 }
-function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); scheduleSync(); }
+
+/* ── 同步到 Word Table ───────────────
+   每次資料改動後 debounce 1.5 秒整份推送(冪等,重複推無害)。
+   手機不在 Tailscale 上時安靜失敗,回到網路後開 app 或切回前景會補推。 */
+const SYNC_KEY = 'bedside-wt-sync-url';
+const syncStatusEl = document.getElementById('syncStatus');
+let syncTimer = null;
+function syncUrl(){ return (localStorage.getItem(SYNC_KEY)||'').trim().replace(/\/+$/,''); }
+function setSyncStatus(msg, isErr){
+  syncStatusEl.textContent = msg;
+  syncStatusEl.className = 'syncline'+(isErr?' err':'');
+}
+function scheduleSync(){
+  if(!syncUrl()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(doSync, 1500);
+}
+async function doSync(){
+  const url = syncUrl();
+  if(!url || !state.beds.length) return;
+  setSyncStatus('同步 WT 中…');
+  try{
+    const res = await fetch(url+'/api/bedside-todos', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        source:'bedside-todo',
+        beds: state.beds.map(b=>({
+          no:b.no, name:b.name,
+          todos:b.todos.map(t=>({text:t.text, done:!!t.done})),
+        })),
+      }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error) throw new Error(data.error || ('HTTP '+res.status));
+    const now = new Date();
+    const hm = String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+    let extra = '';
+    if(data.unmatched && data.unmatched.length) extra = '(WT 沒有 '+data.unmatched.join(', ')+')';
+    if(data.skipped && data.skipped.length) extra += '(跳過 '+data.skipped.map(s=>s.no).join(', ')+':姓名不符)';
+    setSyncStatus('✓ '+hm+' 已同步 WT '+extra);
+  }catch(e){
+    setSyncStatus('⚠ WT 同步失敗:確認 Tailscale 開著、Mac 醒著', true);
+  }
+}
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='visible') scheduleSync();
+});
 
 function todayStr(d=new Date()){ return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
 function fmtTs(ts){
@@ -323,8 +378,14 @@ const settingsEl = document.getElementById('settings');
 const bedEditor = document.getElementById('bedEditor');
 function openSettings(){
   renderEditor(state.beds.map(b=>({no:b.no,name:b.name})));
+  document.getElementById('syncUrlInput').value = localStorage.getItem(SYNC_KEY)||'';
   settingsEl.classList.add('open');
 }
+document.getElementById('syncUrlInput').onchange = e=>{
+  localStorage.setItem(SYNC_KEY, e.target.value.trim());
+  setSyncStatus('');
+  scheduleSync();
+};
 document.getElementById('btnSettings').onclick = openSettings;
 function bedRowEl(no, name){
   const div = document.createElement('div');
@@ -387,6 +448,7 @@ document.getElementById('btnWipe').onclick = ()=>{
 };
 
 render();
+scheduleSync();
 
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('./sw.js');
