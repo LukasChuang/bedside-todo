@@ -225,7 +225,14 @@ function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); scheduleSy
 const SYNC_KEY = 'bedside-wt-sync-url';
 const syncStatusEl = document.getElementById('syncStatus');
 let syncTimer = null;
-function syncUrl(){ return (localStorage.getItem(SYNC_KEY)||'').trim().replace(/\/+$/,''); }
+function syncUrl(){
+  // 寬容處理手機輸入:全形轉半形、去空白、自動補 https://
+  let u = (localStorage.getItem(SYNC_KEY)||'')
+    .replace(/：/g,':').replace(/／/g,'/').replace(/。/g,'.')
+    .replace(/\s+/g,'').replace(/\/+$/,'');
+  if(u && !/^https?:\/\//i.test(u)) u = 'https://'+u;
+  return u;
+}
 function setSyncStatus(msg, isErr){
   syncStatusEl.textContent = msg;
   syncStatusEl.className = 'syncline'+(isErr?' err':'');
