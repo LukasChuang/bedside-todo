@@ -193,6 +193,7 @@ main{padding:8px 12px 40px; display:flex; flex-direction:column; gap:8px}
   <textarea id="pastebox" placeholder="05W2 03 01 王小明&#10;05W2 03 03 陳大文&#10;…"></textarea>
   <div class="set-actions">
     <button id="btnImport">匯入取代清單</button>
+    <button class="primary" id="btnImportWT">從 WT 匯入</button>
   </div>
   <h2>同步到 Word Table</h2>
   <p class="hint">填入 Mac 上 WT 的網址(手機需開著 Tailscale),之後每次改動會自動把各床「未完成」待辦寫進 WT 筆記欄;清空此欄位即停用。網址只存在這支手機。</p>
@@ -437,6 +438,25 @@ function applyBedList(rows){
   }));
   save(); render();
 }
+document.getElementById('btnImportWT').onclick = async ()=>{
+  const url = syncUrl();
+  if(!url){ alert('請先在下方「同步到 Word Table」填入網址'); return; }
+  const btn = document.getElementById('btnImportWT');
+  btn.disabled = true; btn.textContent = '讀取中…';
+  try{
+    const res = await fetch(url+'/api/bedside-beds');
+    const data = await res.json();
+    const rows = (data.beds||[]).filter(r=>r.no);
+    if(!rows.length){ alert('WT 目前沒有病人'); return; }
+    if(!confirm('從 WT 匯入 '+rows.length+' 床,取代目前清單?\n(同床號同病人的待辦會保留)')) return;
+    applyBedList(rows);
+    settingsEl.classList.remove('open');
+  }catch(e){
+    alert('連不到 WT:確認 Tailscale 開著、Mac 醒著');
+  }finally{
+    btn.disabled = false; btn.textContent = '從 WT 匯入';
+  }
+};
 document.getElementById('btnClearDoneAll').onclick = ()=>{
   state.beds.forEach(b=>b.todos=b.todos.filter(t=>!t.done));
   save(); render(); settingsEl.classList.remove('open');
