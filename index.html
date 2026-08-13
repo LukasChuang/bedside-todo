@@ -199,7 +199,7 @@ main{padding:8px 12px 40px; display:flex; flex-direction:column; gap:8px}
   <p class="hint">填入 Mac 上 WT 的網址(手機需開著 Tailscale),之後每次改動會自動把各床「未完成」待辦寫進 WT 筆記欄;清空此欄位即停用。網址只存在這支手機。</p>
   <input id="syncUrlInput" type="url" placeholder="https://xxx.ts.net" autocapitalize="off" autocorrect="off"
          style="width:100%; font-size:15px; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink)">
-  <p class="hint" style="margin-top:12px">雲端中繼網址(選填):直連失敗時改把待辦送到你自己的 Apps Script 中繼站,Mac 每 2 分鐘收一次。經過雲端的只有床號、待辦文字和姓名雜湊,不含病人姓名。</p>
+  <p class="hint" style="margin-top:12px">雲端中繼網址(第一優先):待辦先送到你自己的 Apps Script 中繼站,Mac 每分鐘收一次寫進 WT;上面的直連網址只在雲端失敗時當備援。經過雲端的只有床號、待辦文字和姓名雜湊,不含病人姓名。</p>
   <input id="relayUrlInput" type="url" placeholder="貼上中繼站網址(含 secret)" autocapitalize="off" autocorrect="off"
          style="width:100%; font-size:15px; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink)">
   <div class="danger-zone">
@@ -269,29 +269,10 @@ async function doSync(){
       todos:b.todos.map(t=>({text:t.text, done:!!t.done})),
     });
   }
-  // 1) 直連 WT(Tailscale 通的時候)
-  const wt = syncUrl();
-  if(wt){
-    setSyncStatus('同步 WT 中…');
-    try{
-      const res = await fetch(wt+'/api/bedside-todos', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({source:'bedside-todo', beds}),
-      });
-      const data = await res.json();
-      if(!res.ok || data.error) throw new Error(data.error || ('HTTP '+res.status));
-      let extra = '';
-      if(data.unmatched && data.unmatched.length) extra = '(WT 沒有 '+data.unmatched.join(', ')+')';
-      if(data.skipped && data.skipped.length) extra += '(跳過 '+data.skipped.map(s=>s.no).join(', ')+':姓名不符)';
-      setSyncStatus('✓ '+nowHM()+' 已同步 WT '+extra);
-      return;
-    }catch(e){ /* 直連失敗,往下改走中繼 */ }
-  }
-  // 2) 雲端中繼(院內擋 Tailscale 時的備援;中繼 payload 不帶姓名明文)
+  // 1) 雲端中繼優先(院內擋 Tailscale,雲端到處都通;payload 不帶姓名明文)
   const relay = relayUrl();
   if(relay){
-    setSyncStatus('改走雲端中繼…');
+    setSyncStatus('送雲端中繼…');
     try{
       const u = new URL(relay);
       const secret = u.searchParams.get('secret')||'';
@@ -303,11 +284,30 @@ async function doSync(){
       });
       const data = await res.json();
       if(data.error) throw new Error(data.error);
-      setSyncStatus('✓ '+nowHM()+' 已送雲端中繼(WT 約 2 分鐘內更新)');
+      setSyncStatus('✓ '+nowHM()+' 已送雲端(WT 約 1-2 分鐘內更新)');
       return;
-    }catch(e){ /* 中繼也失敗 */ }
+    }catch(e){ /* 中繼失敗,往下試直連 */ }
   }
-  setSyncStatus('⚠ 同步失敗:直連與中繼都連不上', true);
+  // 2) 直連 WT 備援(Tailscale 通的時候)
+  const wt = syncUrl();
+  if(wt){
+    setSyncStatus('改試直連 WT…');
+    try{
+      const res = await fetch(wt+'/api/bedside-todos', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({source:'bedside-todo', beds}),
+      });
+      const data = await res.json();
+      if(!res.ok || data.error) throw new Error(data.error || ('HTTP '+res.status));
+      let extra = '';
+      if(data.unmatched && data.unmatched.length) extra = '(WT 沒有 '+data.unmatched.join(', ')+')';
+      if(data.skipped && data.skipped.length) extra += '(跳過 '+data.skipped.map(s=>s.no).join(', ')+':姓名不符)';
+      setSyncStatus('✓ '+nowHM()+' 已直連同步 WT '+extra);
+      return;
+    }catch(e){ /* 直連也失敗 */ }
+  }
+  setSyncStatus('⚠ 同步失敗:雲端與直連都連不上', true);
 }
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState==='visible') scheduleSync();
