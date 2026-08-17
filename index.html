@@ -310,8 +310,44 @@ async function doSync(){
   setSyncStatus('⚠ 同步失敗:雲端與直連都連不上', true);
 }
 document.addEventListener('visibilitychange', ()=>{
-  if(document.visibilityState==='visible') scheduleSync();
+  if(document.visibilityState==='visible'){ scheduleSync(); checkRosterUpdate(); }
 });
+
+/* ── 床位名單自動更新(WT→手機,經雲端中繼) ───────────
+   Mac 端把名單 AES-GCM 加密後放中繼站,這裡用中繼網址上的 secret 解密;
+   nonce 沒看過才提示匯入,拒絕後同一版不再問。 */
+const ROSTER_NONCE_KEY = 'bedside-roster-nonce';
+async function decryptRoster(cipher, secret){
+  const parts = cipher.split('.');
+  const keyBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
+  const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['decrypt']);
+  const iv = Uint8Array.from(atob(parts[0]), c=>c.charCodeAt(0));
+  const data = Uint8Array.from(atob(parts[1]), c=>c.charCodeAt(0));
+  const plain = await crypto.subtle.decrypt({name:'AES-GCM', iv}, key, data);
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+async function fetchRelayRoster(){
+  const relay = relayUrl();
+  if(!relay) return null;
+  const u = new URL(relay);
+  const secret = u.searchParams.get('secret')||'';
+  const res = await fetch(u.origin+u.pathname+'?action=roster&secret='+encodeURIComponent(secret));
+  const data = await res.json();
+  if(!data.cipher) return null;
+  const plain = await decryptRoster(data.cipher, secret);
+  return {beds:(plain.beds||[]).filter(b=>b&&b.no), nonce:String(data.nonce||'')};
+}
+async function checkRosterUpdate(){
+  try{
+    const r = await fetchRelayRoster();
+    if(!r || !r.beds.length) return;
+    if(localStorage.getItem(ROSTER_NONCE_KEY)===r.nonce) return;
+    if(confirm('WT 床位名單有更新('+r.beds.length+' 床),要匯入嗎?\n(同床號同病人的待辦會保留)')){
+      applyBedList(r.beds);
+    }
+    localStorage.setItem(ROSTER_NONCE_KEY, r.nonce);
+  }catch(e){ /* 離線或尚未設定中繼,安靜跳過 */ }
+}
 
 function todayStr(d=new Date()){ return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
 function fmtTs(ts){
@@ -491,20 +527,28 @@ function applyBedList(rows){
   save(); render();
 }
 document.getElementById('btnImportWT').onclick = async ()=>{
-  const url = syncUrl();
-  if(!url){ alert('請先在下方「同步到 Word Table」填入網址'); return; }
+  if(!relayUrl() && !syncUrl()){ alert('請先在下方填入雲端中繼網址(或直連網址)'); return; }
   const btn = document.getElementById('btnImportWT');
   btn.disabled = true; btn.textContent = '讀取中…';
   try{
-    const res = await fetch(url+'/api/bedside-beds');
-    const data = await res.json();
-    const rows = (data.beds||[]).filter(r=>r.no);
-    if(!rows.length){ alert('WT 目前沒有病人'); return; }
-    if(!confirm('從 WT 匯入 '+rows.length+' 床,取代目前清單?\n(同床號同病人的待辦會保留)')) return;
+    // 雲端優先,直連備援(與待辦同步一致)
+    let rows = null, src = '';
+    try{
+      const r = await fetchRelayRoster();
+      if(r && r.beds.length){ rows = r.beds; src = '雲端'; localStorage.setItem(ROSTER_NONCE_KEY, r.nonce); }
+    }catch(e){}
+    if(!rows && syncUrl()){
+      try{
+        const res = await fetch(syncUrl()+'/api/bedside-beds');
+        const data = await res.json();
+        const direct = (data.beds||[]).filter(r=>r.no);
+        if(direct.length){ rows = direct; src = '直連'; }
+      }catch(e){}
+    }
+    if(!rows || !rows.length){ alert('連不到雲端與 WT(或名單是空的);Mac 醒著嗎?'); return; }
+    if(!confirm('從 WT 匯入('+src+')'+rows.length+' 床,取代目前清單?\n(同床號同病人的待辦會保留)')) return;
     applyBedList(rows);
     settingsEl.classList.remove('open');
-  }catch(e){
-    alert('連不到 WT:確認 Tailscale 開著、Mac 醒著');
   }finally{
     btn.disabled = false; btn.textContent = '從 WT 匯入';
   }
@@ -521,6 +565,7 @@ document.getElementById('btnWipe').onclick = ()=>{
 
 render();
 scheduleSync();
+checkRosterUpdate();
 
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('./sw.js');
