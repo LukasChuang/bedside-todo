@@ -52,6 +52,13 @@ main { padding: 10px 12px; max-width: 980px; margin: 0 auto; }
 .lcard .lbody .empty-t { color: #9aa7b4; }
 /* 今日新增內容(與昨天最後版本比對):橘紅色 */
 .new-t { color: #c2410c; }
+/* 藥物檢視:新增/變更=藍,移除=紅+刪除線 */
+.med-add { color: #1d4ed8; font-weight: 600; }
+.med-del { color: #b3402f; text-decoration: line-through; }
+.card .sec.meds .txt { font-variant-numeric: tabular-nums; }
+/* Assessment 預設收合,點標題展開 */
+.sec.collapsible .lab { cursor: pointer; user-select: none; -webkit-user-select: none; }
+.sec.collapsible:not(.open) .txt { display: none; }
 .newbadge { background: #fff; color: #c2410c; font-size: 12px; font-weight: 700;
   border-radius: 8px; padding: 1px 7px; flex: none; align-self: center; }
 .state { text-align: center; color: #7c8b98; padding: 60px 20px; font-size: 15px; }
@@ -87,6 +94,7 @@ main { padding: 10px 12px; max-width: 980px; margin: 0 auto; }
   <h1>WT</h1>
   <span class="meta" id="meta">載入中…</span>
   <button id="reloadBtn" aria-label="重新整理">↻</button>
+  <button id="medsBtn">藥</button>
   <button id="viewBtn">詳細</button>
   <button id="filterBtn">全部</button>
 </header>
@@ -193,13 +201,16 @@ function render(){
   const list = (data.patients||[]).filter(p=>!sel || p.attending===sel);
   filterBtn.textContent = sel || '全部';
   filterBtn.className = sel ? 'active' : '';
-  document.getElementById('viewBtn').textContent = view==='list' ? '詳細' : '清單';
+  document.getElementById('viewBtn').textContent = view==='detail' ? '清單' : '詳細';
   metaEl.innerHTML = '更新 ' + esc(shortTime(data.generatedAt)) + ' · ' + list.length + ' 床';
   if(!list.length){
     mainEl.innerHTML = '<div class="state">'+(sel ? '「'+esc(sel)+'」目前沒有病人' : '沒有病人資料')+'</div>';
     return;
   }
-  if(view==='list') renderListView(list); else renderDetailView(list);
+  document.getElementById('medsBtn').className = view==='meds' ? 'active' : '';
+  if(view==='list') renderListView(list);
+  else if(view==='meds') renderMedsView(list);
+  else renderDetailView(list);
   if(pendingScroll !== null){
     const el = document.getElementById('p'+pendingScroll);
     if(el) el.scrollIntoView({block:'start'});
@@ -233,10 +244,58 @@ function renderDetailView(list){
     const secs = SECTIONS.map(([k,lab])=>{
       const html = fmtLines(p,k);
       if(!html) return '';
+      if(k==='assessment'){
+        // 預設收合,點標題展開
+        return '<div class="sec collapsible"><div class="lab">'+lab+' ▸</div><div class="txt">'+html+'</div></div>';
+      }
       return '<div class="sec '+(k==='todo'?'todo':'')+'"><div class="lab">'+lab+'</div><div class="txt">'+html+'</div></div>';
     }).join('');
     return '<div class="card" id="p'+i+'"><div class="bar" style="display:flex;gap:8px">'+esc(p.info)+barBadge(p)+'</div>'+secs+'</div>';
   }).join('');
+  mainEl.querySelectorAll('.sec.collapsible .lab').forEach(lab=>{
+    lab.onclick = ()=>{
+      const sec = lab.parentElement;
+      sec.classList.toggle('open');
+      lab.textContent = 'ASSESSMENT ' + (sec.classList.contains('open') ? '▾' : '▸');
+    };
+  });
+}
+
+/* ── 藥物檢視:目前藥物＋藥物變更,新增/變更=藍、移除=紅刪除線 ── */
+function medChangeHtml(text){
+  return text.split('\n').map(line=>{
+    const t = line.trim();
+    if(t.startsWith('移除：')) return '<span class="med-del">'+esc(line)+'</span>';
+    if(t.startsWith('新增：')||t.startsWith('變更：')) return '<span class="med-add">'+esc(line)+'</span>';
+    return esc(line);
+  }).join('\n').replace(/^\n+|\n+$/g,'');
+}
+function medsHtml(medsText, changeText){
+  // 目前藥物清單裡,名字出現在「新增/變更」行的藥整行標藍
+  const names = [];
+  String(changeText||'').split('\n').forEach(l=>{
+    const m = l.trim().match(/^(?:新增|變更)：\s*(\S+)/);
+    if(m) names.push(m[1].split(/[（(]/)[0]);
+  });
+  return String(medsText||'').split('\n').map(line=>{
+    const t = line.trim();
+    const hit = t && names.some(n=>t.startsWith(n));
+    return hit ? '<span class="med-add">'+esc(line)+'</span>' : esc(line);
+  }).join('\n').replace(/^\n+|\n+$/g,'');
+}
+function renderMedsView(list){
+  mainEl.innerHTML = list.map((p,i)=>{
+    const meds = (p.meds||'').trim();
+    const change = (p.medChange||'').trim();
+    let secs = '';
+    if(meds) secs += '<div class="sec meds"><div class="lab">目前藥物</div><div class="txt">'+medsHtml(p.meds, p.medChange)+'</div></div>';
+    if(change) secs += '<div class="sec meds"><div class="lab">藥物變更</div><div class="txt">'+medChangeHtml(p.medChange)+'</div></div>';
+    if(!secs) secs = '<div class="sec"><div class="txt" style="color:#9aa7b4">（無藥物資料）</div></div>';
+    return '<div class="card"><div class="bar" data-i="'+i+'" style="display:flex;gap:8px;cursor:pointer">'+esc(p.info)+barBadge(p)+'</div>'+secs+'</div>';
+  }).join('');
+  mainEl.querySelectorAll('.bar[data-i]').forEach(bar=>{
+    bar.onclick = ()=>{ view='detail'; pendingScroll = bar.dataset.i; render(); };
+  });
 }
 
 function renderFilterMenu(){
@@ -267,7 +326,12 @@ document.addEventListener('click', (e)=>{
 });
 document.getElementById('reloadBtn').onclick = ()=>load(true);
 document.getElementById('viewBtn').onclick = ()=>{
-  view = (view==='list') ? 'detail' : 'list';
+  view = (view==='detail') ? 'list' : 'detail';
+  render();
+  window.scrollTo(0, 0);
+};
+document.getElementById('medsBtn').onclick = ()=>{
+  view = (view==='meds') ? 'list' : 'meds';
   render();
   window.scrollTo(0, 0);
 };
