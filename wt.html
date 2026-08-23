@@ -37,6 +37,18 @@ main { padding: 10px 12px; max-width: 980px; margin: 0 auto; }
   letter-spacing: .08em; margin-bottom: 2px; }
 .card .sec .txt { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; }
 .card .sec.todo .txt { color: #0f766e; font-weight: 500; }
+/* 查房清單檢視(預設):綠條＋筆記/待辦,點綠條跳該床詳細頁 */
+.lcard { background: #fff; border: 1px solid #d7dee2; border-radius: 10px;
+  overflow: hidden; margin-bottom: 10px; }
+.lcard .bar { background: #0f766e; color: #fff; padding: 8px 12px;
+  font-size: 15.5px; font-weight: 700; overflow-wrap: anywhere; cursor: pointer;
+  display: flex; align-items: baseline; gap: 8px; }
+.lcard .bar:active { background: #0c5f59; }
+.lcard .bar .go { margin-left: auto; font-size: 13px; font-weight: 400; opacity: .75; flex: none; }
+.lcard .lbody { padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-size: 15px; }
+.lcard .lbody .todo-t { color: #0f766e; font-weight: 500; }
+.lcard .lbody .empty-t { color: #9aa7b4; }
 .state { text-align: center; color: #7c8b98; padding: 60px 20px; font-size: 15px; }
 .state button { display: block; margin: 18px auto 0; border: 0; border-radius: 8px;
   background: #0f766e; color: #fff; font-size: 16px; font-weight: 700;
@@ -70,6 +82,7 @@ main { padding: 10px 12px; max-width: 980px; margin: 0 auto; }
   <h1>WT</h1>
   <span class="meta" id="meta">載入中…</span>
   <button id="reloadBtn" aria-label="重新整理">↻</button>
+  <button id="viewBtn">詳細</button>
   <button id="filterBtn">全部</button>
 </header>
 <div id="filterMenu"></div>
@@ -144,25 +157,58 @@ function attendings(){
   return Object.entries(count).sort((a,b)=>a[0].localeCompare(b[0],'zh-Hant'));
 }
 
+let view = 'list';          // 'list'=查房清單(預設) / 'detail'=詳細
+let pendingScroll = null;   // 從清單點進來要捲到的病人索引
+
 function render(){
   if(!data) return;
   const sel = localStorage.getItem(FILTER_KEY) || '';
   const list = (data.patients||[]).filter(p=>!sel || p.attending===sel);
   filterBtn.textContent = sel || '全部';
   filterBtn.className = sel ? 'active' : '';
+  document.getElementById('viewBtn').textContent = view==='list' ? '詳細' : '清單';
   metaEl.textContent = (data.generatedAt||'') + ' · ' + list.length + ' 床';
   if(!list.length){
     mainEl.innerHTML = '<div class="state">'+(sel ? '「'+esc(sel)+'」目前沒有病人' : '沒有病人資料')+'</div>';
     return;
   }
+  if(view==='list') renderListView(list); else renderDetailView(list);
+  if(pendingScroll !== null){
+    const el = document.getElementById('p'+pendingScroll);
+    if(el) el.scrollIntoView({block:'start'});
+    pendingScroll = null;
+  }
+}
+
+function renderListView(list){
+  mainEl.innerHTML = list.map((p,i)=>{
+    const note = (p.note||'').trim();
+    const todo = (p.todo||'').trim();
+    let body = '';
+    if(note) body += esc(note);
+    if(todo) body += (body?'\n':'') + '<span class="todo-t">'+esc(todo)+'</span>';
+    if(!body) body = '<span class="empty-t">（筆記欄空白）</span>';
+    return '<div class="lcard"><div class="bar" data-i="'+i+'">'+esc(p.info)+
+      '<span class="go">詳細 ›</span></div><div class="lbody">'+body+'</div></div>';
+  }).join('');
+  mainEl.querySelectorAll('.bar[data-i]').forEach(bar=>{
+    bar.onclick = ()=>{
+      view = 'detail';
+      pendingScroll = bar.dataset.i;
+      render();
+    };
+  });
+}
+
+function renderDetailView(list){
   const SECTIONS = [['dx','診斷'],['assessment','ASSESSMENT'],['plan','PLAN'],['note','處置與狀況'],['todo','待辦/待追蹤']];
-  mainEl.innerHTML = list.map(p=>{
+  mainEl.innerHTML = list.map((p,i)=>{
     const secs = SECTIONS.map(([k,lab])=>{
       const txt = (p[k]||'').trim();
       if(!txt) return '';
       return '<div class="sec '+(k==='todo'?'todo':'')+'"><div class="lab">'+lab+'</div><div class="txt">'+esc(txt)+'</div></div>';
     }).join('');
-    return '<div class="card"><div class="bar">'+esc(p.info)+'</div>'+secs+'</div>';
+    return '<div class="card" id="p'+i+'"><div class="bar">'+esc(p.info)+'</div>'+secs+'</div>';
   }).join('');
 }
 
@@ -193,6 +239,11 @@ document.addEventListener('click', (e)=>{
   if(!filterMenu.contains(e.target) && e.target!==filterBtn) filterMenu.classList.remove('open');
 });
 document.getElementById('reloadBtn').onclick = ()=>load(true);
+document.getElementById('viewBtn').onclick = ()=>{
+  view = (view==='list') ? 'detail' : 'list';
+  render();
+  window.scrollTo(0, 0);
+};
 document.getElementById('setupSave').onclick = ()=>{
   const v = document.getElementById('setupUrl').value.trim();
   if(!v){ alert('請貼上中繼網址'); return; }
