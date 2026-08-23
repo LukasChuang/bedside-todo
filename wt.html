@@ -244,8 +244,8 @@ function renderDetailView(list){
     const secs = SECTIONS.map(([k,lab])=>{
       const html = fmtLines(p,k);
       if(!html) return '';
-      if(k==='assessment'){
-        // 預設收合,點標題展開
+      if(k==='dx'){
+        // 診斷預設收合,點標題展開
         return '<div class="sec collapsible"><div class="lab">'+lab+' ▸</div><div class="txt">'+html+'</div></div>';
       }
       return '<div class="sec '+(k==='todo'?'todo':'')+'"><div class="lab">'+lab+'</div><div class="txt">'+html+'</div></div>';
@@ -256,7 +256,7 @@ function renderDetailView(list){
     lab.onclick = ()=>{
       const sec = lab.parentElement;
       sec.classList.toggle('open');
-      lab.textContent = 'ASSESSMENT ' + (sec.classList.contains('open') ? '▾' : '▸');
+      lab.textContent = '診斷 ' + (sec.classList.contains('open') ? '▾' : '▸');
     };
   });
 }
