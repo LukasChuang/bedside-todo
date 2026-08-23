@@ -50,6 +50,10 @@ main { padding: 10px 12px; max-width: 980px; margin: 0 auto; }
   font-size: 15px; }
 .lcard .lbody .todo-t { color: #0f766e; font-weight: 500; }
 .lcard .lbody .empty-t { color: #9aa7b4; }
+/* 今日新增內容(與昨天最後版本比對):橘紅色 */
+.new-t { color: #c2410c; }
+.newbadge { background: #fff; color: #c2410c; font-size: 12px; font-weight: 700;
+  border-radius: 8px; padding: 1px 7px; flex: none; align-self: center; }
 .state { text-align: center; color: #7c8b98; padding: 60px 20px; font-size: 15px; }
 .state button { display: block; margin: 18px auto 0; border: 0; border-radius: 8px;
   background: #0f766e; color: #fff; font-size: 16px; font-weight: 700;
@@ -114,6 +118,16 @@ function relayUrl(){
     .replace(/\s+/g,'');
 }
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fmtLines(p, key){
+  // 逐行輸出,今日新增的行(added[key] 索引)包橘紅 span;整段空白回傳空字串
+  const raw = p[key]||'';
+  if(!raw.trim()) return '';
+  const addedIdx = new Set((p.added && p.added[key]) || []);
+  return raw.split('\n')
+    .map((line,i)=> addedIdx.has(i) ? '<span class="new-t">'+esc(line)+'</span>' : esc(line))
+    .join('\n').replace(/^\n+|\n+$/g,'');
+}
+function barBadge(p){ return p.isNew ? '<span class="newbadge">新</span>' : ''; }
 function shortTime(generatedAt){
   // "2026/08/24 10:05" → 今天只顯示 "10:05",非今天顯示 "8/24 10:05"
   const m = String(generatedAt||'').match(/^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}:\d{2})$/);
@@ -195,13 +209,13 @@ function render(){
 
 function renderListView(list){
   mainEl.innerHTML = list.map((p,i)=>{
-    const note = (p.note||'').trim();
-    const todo = (p.todo||'').trim();
+    const note = fmtLines(p,'note');
+    const todo = fmtLines(p,'todo');
     let body = '';
-    if(note) body += esc(note);
-    if(todo) body += (body?'\n':'') + '<span class="todo-t">'+esc(todo)+'</span>';
+    if(note) body += note;
+    if(todo) body += (body?'\n':'') + '<span class="todo-t">'+todo+'</span>';
     if(!body) body = '<span class="empty-t">（筆記欄空白）</span>';
-    return '<div class="lcard"><div class="bar" data-i="'+i+'">'+esc(p.info)+
+    return '<div class="lcard"><div class="bar" data-i="'+i+'">'+esc(p.info)+barBadge(p)+
       '<span class="go">詳細 ›</span></div><div class="lbody">'+body+'</div></div>';
   }).join('');
   mainEl.querySelectorAll('.bar[data-i]').forEach(bar=>{
@@ -217,11 +231,11 @@ function renderDetailView(list){
   const SECTIONS = [['dx','診斷'],['assessment','ASSESSMENT'],['plan','PLAN'],['note','處置與狀況'],['todo','待辦/待追蹤']];
   mainEl.innerHTML = list.map((p,i)=>{
     const secs = SECTIONS.map(([k,lab])=>{
-      const txt = (p[k]||'').trim();
-      if(!txt) return '';
-      return '<div class="sec '+(k==='todo'?'todo':'')+'"><div class="lab">'+lab+'</div><div class="txt">'+esc(txt)+'</div></div>';
+      const html = fmtLines(p,k);
+      if(!html) return '';
+      return '<div class="sec '+(k==='todo'?'todo':'')+'"><div class="lab">'+lab+'</div><div class="txt">'+html+'</div></div>';
     }).join('');
-    return '<div class="card" id="p'+i+'"><div class="bar">'+esc(p.info)+'</div>'+secs+'</div>';
+    return '<div class="card" id="p'+i+'"><div class="bar" style="display:flex;gap:8px">'+esc(p.info)+barBadge(p)+'</div>'+secs+'</div>';
   }).join('');
 }
 
