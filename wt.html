@@ -21,8 +21,9 @@ header { position: sticky; top: 0; z-index: 10; background: #0f766e; color: #fff
   padding: calc(8px + env(safe-area-inset-top)) 14px 8px;
   display: flex; align-items: center; gap: 10px; }
 header h1 { font-size: 17px; margin: 0; flex: none; font-weight: 700; }
-header .meta { flex: 1; font-size: 12.5px; opacity: .85; overflow: hidden;
+header .meta { flex: 1; font-size: 14px; font-weight: 600; overflow: hidden;
   white-space: nowrap; text-overflow: ellipsis; }
+header .meta .stale { color: #ffd9a8; font-weight: 700; }
 header button { flex: none; border: 1px solid rgba(255,255,255,.55); background: none;
   color: #fff; border-radius: 8px; font-size: 14.5px; font-weight: 600;
   padding: 6px 12px; cursor: pointer; }
@@ -113,6 +114,14 @@ function relayUrl(){
     .replace(/\s+/g,'');
 }
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function shortTime(generatedAt){
+  // "2026/08/24 10:05" → 今天只顯示 "10:05",非今天顯示 "8/24 10:05"
+  const m = String(generatedAt||'').match(/^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}:\d{2})$/);
+  if(!m) return generatedAt||'';
+  const now = new Date();
+  const isToday = now.getFullYear()===+m[1] && (now.getMonth()+1)===+m[2] && now.getDate()===+m[3];
+  return isToday ? m[4] : (+m[2])+'/'+(+m[3])+' '+m[4];
+}
 
 async function decryptPayload(cipher, secret){
   const parts = cipher.split('.');
@@ -145,8 +154,12 @@ async function load(manual){
     try{ localStorage.setItem(CACHE_KEY, JSON.stringify({data, nonce: box.nonce})); }catch(e){}
     render();
   }catch(e){
-    if(!data) mainEl.innerHTML = '<div class="state">連不到中繼站,或密鑰不對。<br><button onclick="resetSetup()">重新設定網址</button></div>';
-    metaEl.textContent = '(離線,顯示上次內容)';
+    if(!data){
+      mainEl.innerHTML = '<div class="state">連不到中繼站,或密鑰不對。<br><button onclick="resetSetup()">重新設定網址</button></div>';
+      metaEl.textContent = '';
+    }else{
+      metaEl.innerHTML = '更新 ' + esc(shortTime(data.generatedAt)) + ' <span class="stale">· 離線</span>';
+    }
   }
 }
 function resetSetup(){ localStorage.removeItem(RELAY_KEY); location.reload(); }
@@ -167,7 +180,7 @@ function render(){
   filterBtn.textContent = sel || '全部';
   filterBtn.className = sel ? 'active' : '';
   document.getElementById('viewBtn').textContent = view==='list' ? '詳細' : '清單';
-  metaEl.textContent = (data.generatedAt||'') + ' · ' + list.length + ' 床';
+  metaEl.innerHTML = '更新 ' + esc(shortTime(data.generatedAt)) + ' · ' + list.length + ' 床';
   if(!list.length){
     mainEl.innerHTML = '<div class="state">'+(sel ? '「'+esc(sel)+'」目前沒有病人' : '沒有病人資料')+'</div>';
     return;
