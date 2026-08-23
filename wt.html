@@ -91,6 +91,7 @@ main { padding: 10px 12px; max-width: 980px; margin: 0 auto; }
 <body>
 
 <header>
+  <button id="backBtn" style="display:none" aria-label="上一頁">‹ 返回</button>
   <h1>WT</h1>
   <span class="meta" id="meta">載入中…</span>
   <button id="reloadBtn" aria-label="重新整理">↻</button>
@@ -190,8 +191,26 @@ function attendings(){
   return Object.entries(count).sort((a,b)=>a[0].localeCompare(b[0],'zh-Hant'));
 }
 
-let view = 'list';          // 'list'=查房清單(預設) / 'detail'=詳細
-let pendingScroll = null;   // 從清單點進來要捲到的病人索引
+let view = 'list';          // list=查房清單(預設) / detail=全部詳細 / meds=藥物 / patient=單一病人
+let pendingScroll = null;   // (detail 檢視保留的捲動位置機制)
+let selectedKey = null;     // patient 檢視鎖定的病人(病歷號)
+const navStack = [];        // 「上一頁」歷史
+
+function keyOf(p){ const m = String(p.info||'').match(/\b(\d{7})\b/); return m ? m[1] : p.info; }
+function updateBackBtn(){ document.getElementById('backBtn').style.display = navStack.length ? '' : 'none'; }
+function navigate(nextView, key){
+  navStack.push({view, selectedKey});
+  if(navStack.length > 50) navStack.shift();
+  view = nextView;
+  if(key !== undefined) selectedKey = key;
+  render(); window.scrollTo(0, 0); updateBackBtn();
+}
+function goBack(){
+  const prev = navStack.pop();
+  if(!prev) return;
+  view = prev.view; selectedKey = prev.selectedKey;
+  render(); window.scrollTo(0, 0); updateBackBtn();
+}
 
 function render(){
   if(!data) return;
@@ -206,6 +225,11 @@ function render(){
     return;
   }
   document.getElementById('medsBtn').className = view==='meds' ? 'active' : '';
+  if(view==='patient'){
+    const p = (data.patients||[]).find(x=>keyOf(x)===selectedKey);
+    if(p){ renderPatientView(p); return; }
+    view = 'list';  // 病人已不在名單(出院等) → 退回清單
+  }
   if(view==='list') renderListView(list);
   else if(view==='meds') renderMedsView(list);
   else renderDetailView(list);
@@ -228,28 +252,23 @@ function renderListView(list){
       '<span class="go">詳細 ›</span></div><div class="lbody">'+body+'</div></div>';
   }).join('');
   mainEl.querySelectorAll('.bar[data-i]').forEach(bar=>{
-    bar.onclick = ()=>{
-      view = 'detail';
-      pendingScroll = bar.dataset.i;
-      render();
-    };
+    bar.onclick = ()=>navigate('patient', keyOf(list[+bar.dataset.i]));
   });
 }
 
-function renderDetailView(list){
+function detailSections(p){
   const SECTIONS = [['dx','診斷'],['assessment','ASSESSMENT'],['plan','PLAN'],['note','處置與狀況'],['todo','待辦/待追蹤']];
-  mainEl.innerHTML = list.map((p,i)=>{
-    const secs = SECTIONS.map(([k,lab])=>{
-      const html = fmtLines(p,k);
-      if(!html) return '';
-      if(k==='dx'){
-        // 診斷預設收合,點標題展開
-        return '<div class="sec collapsible"><div class="lab">'+lab+' ▸</div><div class="txt">'+html+'</div></div>';
-      }
-      return '<div class="sec '+(k==='todo'?'todo':'')+'"><div class="lab">'+lab+'</div><div class="txt">'+html+'</div></div>';
-    }).join('');
-    return '<div class="card" id="p'+i+'"><div class="bar" style="display:flex;gap:8px">'+esc(p.info)+barBadge(p)+'</div>'+secs+'</div>';
+  return SECTIONS.map(([k,lab])=>{
+    const html = fmtLines(p,k);
+    if(!html) return '';
+    if(k==='dx'){
+      // 診斷預設收合,點標題展開
+      return '<div class="sec collapsible"><div class="lab">'+lab+' ▸</div><div class="txt">'+html+'</div></div>';
+    }
+    return '<div class="sec '+(k==='todo'?'todo':'')+'"><div class="lab">'+lab+'</div><div class="txt">'+html+'</div></div>';
   }).join('');
+}
+function bindCollapsibles(){
   mainEl.querySelectorAll('.sec.collapsible .lab').forEach(lab=>{
     lab.onclick = ()=>{
       const sec = lab.parentElement;
@@ -257,6 +276,22 @@ function renderDetailView(list){
       lab.textContent = '診斷 ' + (sec.classList.contains('open') ? '▾' : '▸');
     };
   });
+}
+function renderDetailView(list){
+  mainEl.innerHTML = list.map((p,i)=>
+    '<div class="card" id="p'+i+'"><div class="bar" style="display:flex;gap:8px">'+esc(p.info)+barBadge(p)+'</div>'+detailSections(p)+'</div>'
+  ).join('');
+  bindCollapsibles();
+}
+function renderPatientView(p){
+  // 單一病人頁:詳細內容＋該病人的藥物區塊
+  let secs = detailSections(p);
+  const meds = (p.meds||'').trim();
+  const change = (p.medChange||'').trim();
+  if(meds) secs += '<div class="sec meds"><div class="lab">目前藥物</div><div class="txt">'+medsHtml(p.meds, p.medChange)+'</div></div>';
+  if(change) secs += '<div class="sec meds"><div class="lab">藥物變更</div><div class="txt">'+medChangeHtml(p.medChange)+'</div></div>';
+  mainEl.innerHTML = '<div class="card"><div class="bar" style="display:flex;gap:8px">'+esc(p.info)+barBadge(p)+'</div>'+secs+'</div>';
+  bindCollapsibles();
 }
 
 /* ── 藥物檢視:目前藥物＋藥物變更,新增/變更=藍、移除=紅刪除線 ── */
@@ -292,7 +327,7 @@ function renderMedsView(list){
     return '<div class="card"><div class="bar" data-i="'+i+'" style="display:flex;gap:8px;cursor:pointer">'+esc(p.info)+barBadge(p)+'</div>'+secs+'</div>';
   }).join('');
   mainEl.querySelectorAll('.bar[data-i]').forEach(bar=>{
-    bar.onclick = ()=>{ view='detail'; pendingScroll = bar.dataset.i; render(); };
+    bar.onclick = ()=>navigate('patient', keyOf(list[+bar.dataset.i]));
   });
 }
 
@@ -323,16 +358,9 @@ document.addEventListener('click', (e)=>{
   if(!filterMenu.contains(e.target) && e.target!==filterBtn) filterMenu.classList.remove('open');
 });
 document.getElementById('reloadBtn').onclick = ()=>load(true);
-document.getElementById('viewBtn').onclick = ()=>{
-  view = (view==='detail') ? 'list' : 'detail';
-  render();
-  window.scrollTo(0, 0);
-};
-document.getElementById('medsBtn').onclick = ()=>{
-  view = (view==='meds') ? 'list' : 'meds';
-  render();
-  window.scrollTo(0, 0);
-};
+document.getElementById('viewBtn').onclick = ()=>navigate(view==='detail' ? 'list' : 'detail');
+document.getElementById('medsBtn').onclick = ()=>navigate(view==='meds' ? 'list' : 'meds');
+document.getElementById('backBtn').onclick = goBack;
 document.getElementById('setupSave').onclick = ()=>{
   const v = document.getElementById('setupUrl').value.trim();
   if(!v){ alert('請貼上中繼網址'); return; }
