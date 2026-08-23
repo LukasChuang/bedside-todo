@@ -1,4 +1,4 @@
-const CACHE = 'bedside-v16';
+const CACHE = 'bedside-v17';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png',
                 './wt.html', './wt.webmanifest', './wt-icon-192.png', './wt-icon-512.png'];
 

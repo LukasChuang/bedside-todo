@@ -45,7 +45,12 @@ main { padding: 10px 12px; max-width: 980px; margin: 0 auto; }
   font-size: 15.5px; font-weight: 700; overflow-wrap: anywhere; cursor: pointer;
   display: flex; align-items: baseline; gap: 8px; }
 .lcard .bar:active { background: #0c5f59; }
-.lcard .bar .go { margin-left: auto; font-size: 13px; font-weight: 400; opacity: .75; flex: none; }
+.lcard .bar .go { font-size: 13px; font-weight: 400; opacity: .75; flex: none; }
+/* 病人條上的「藥」小鈕 */
+.medbtn { margin-left: auto; flex: none; border: 1px solid rgba(255,255,255,.6); background: none;
+  color: #fff; border-radius: 8px; font-size: 13.5px; font-weight: 600; padding: 2px 11px;
+  cursor: pointer; align-self: center; }
+.medbtn:active { background: rgba(255,255,255,.25); }
 .lcard .lbody { padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere;
   font-size: 15px; }
 .lcard .lbody .todo-t { color: #0f766e; font-weight: 500; }
@@ -101,7 +106,6 @@ main { padding: 10px 12px; max-width: 980px; margin: 0 auto; }
   <h1>WT</h1>
   <span class="meta" id="meta">載入中…</span>
   <button id="reloadBtn" aria-label="重新整理">↻</button>
-  <button id="medsBtn">藥</button>
   <button id="viewBtn">詳細</button>
   <button id="filterBtn">全部</button>
 </header>
@@ -230,14 +234,12 @@ function render(){
     mainEl.innerHTML = '<div class="state">'+(sel ? '「'+esc(sel)+'」目前沒有病人' : '沒有病人資料')+'</div>';
     return;
   }
-  document.getElementById('medsBtn').className = view==='meds' ? 'active' : '';
-  if(view==='patient'){
+  if(view==='patient' || view==='pmeds'){
     const p = (data.patients||[]).find(x=>keyOf(x)===selectedKey);
-    if(p){ renderPatientView(p); return; }
+    if(p){ (view==='patient' ? renderPatientView : renderPatientMedsView)(p); return; }
     view = 'list';  // 病人已不在名單(出院等) → 退回清單
   }
   if(view==='list') renderListView(list);
-  else if(view==='meds') renderMedsView(list);
   else renderDetailView(list);
   if(pendingScroll !== null){
     const el = document.getElementById('p'+pendingScroll);
@@ -255,11 +257,12 @@ function renderListView(list){
     if(todo) body += (body?'\n':'') + '<span class="todo-t">'+todo+'</span>';
     if(!body) body = '<span class="empty-t">（筆記欄空白）</span>';
     return '<div class="lcard"><div class="bar" data-i="'+i+'">'+esc(p.info)+barBadge(p)+
-      '<span class="go">詳細 ›</span></div><div class="lbody">'+body+'</div></div>';
+      '<button class="medbtn" data-m="'+i+'">藥</button><span class="go">詳細 ›</span></div><div class="lbody">'+body+'</div></div>';
   }).join('');
   mainEl.querySelectorAll('.bar[data-i]').forEach(bar=>{
     bar.onclick = ()=>navigate('patient', keyOf(list[+bar.dataset.i]));
   });
+  bindMedButtons(list);
 }
 
 function detailSections(p){
@@ -293,11 +296,31 @@ function bindCollapsibles(){
     };
   });
 }
+function bindMedButtons(list){
+  mainEl.querySelectorAll('.medbtn[data-m]').forEach(btn=>{
+    btn.onclick = (e)=>{
+      e.stopPropagation();  // 別觸發病人條本身的點擊
+      navigate('pmeds', keyOf(list[+btn.dataset.m]));
+    };
+  });
+}
 function renderDetailView(list){
   mainEl.innerHTML = list.map((p,i)=>
-    '<div class="card" id="p'+i+'"><div class="bar" style="display:flex;gap:8px">'+esc(p.info)+barBadge(p)+'</div>'+detailSections(p)+'</div>'
+    '<div class="card" id="p'+i+'"><div class="bar" style="display:flex;gap:8px">'+esc(p.info)+barBadge(p)+
+    '<button class="medbtn" data-m="'+i+'">藥</button></div>'+detailSections(p)+'</div>'
   ).join('');
   bindCollapsibles();
+  bindMedButtons(list);
+}
+function renderPatientMedsView(p){
+  // 單一病人藥物頁:目前藥物＋藥物變更(標色同全域規則)
+  const meds = (p.meds||'').trim();
+  const change = (p.medChange||'').trim();
+  let secs = '';
+  if(meds) secs += '<div class="sec meds"><div class="lab">目前藥物</div><div class="txt">'+medsHtml(p.meds, p.medChange)+'</div></div>';
+  if(change) secs += '<div class="sec meds"><div class="lab">藥物變更</div><div class="txt">'+medChangeHtml(p.medChange)+'</div></div>';
+  if(!secs) secs = '<div class="sec"><div class="txt" style="color:#9aa7b4">（無藥物資料）</div></div>';
+  mainEl.innerHTML = '<div class="card"><div class="bar" style="display:flex;gap:8px">'+esc(p.info)+barBadge(p)+'</div>'+secs+'</div>';
 }
 function renderPatientView(p){
   // 單一病人頁:詳細內容＋該病人的藥物區塊
@@ -332,20 +355,6 @@ function medsHtml(medsText, changeText){
     return hit ? '<span class="med-add">'+esc(line)+'</span>' : esc(line);
   }).join('\n').replace(/^\n+|\n+$/g,'');
 }
-function renderMedsView(list){
-  mainEl.innerHTML = list.map((p,i)=>{
-    const meds = (p.meds||'').trim();
-    const change = (p.medChange||'').trim();
-    let secs = '';
-    if(meds) secs += '<div class="sec meds"><div class="lab">目前藥物</div><div class="txt">'+medsHtml(p.meds, p.medChange)+'</div></div>';
-    if(change) secs += '<div class="sec meds"><div class="lab">藥物變更</div><div class="txt">'+medChangeHtml(p.medChange)+'</div></div>';
-    if(!secs) secs = '<div class="sec"><div class="txt" style="color:#9aa7b4">（無藥物資料）</div></div>';
-    return '<div class="card"><div class="bar" data-i="'+i+'" style="display:flex;gap:8px;cursor:pointer">'+esc(p.info)+barBadge(p)+'</div>'+secs+'</div>';
-  }).join('');
-  mainEl.querySelectorAll('.bar[data-i]').forEach(bar=>{
-    bar.onclick = ()=>navigate('patient', keyOf(list[+bar.dataset.i]));
-  });
-}
 
 function renderFilterMenu(){
   const sel = localStorage.getItem(FILTER_KEY) || '';
@@ -375,7 +384,6 @@ document.addEventListener('click', (e)=>{
 });
 document.getElementById('reloadBtn').onclick = ()=>load(true);
 document.getElementById('viewBtn').onclick = ()=>navigate(view==='detail' ? 'list' : 'detail');
-document.getElementById('medsBtn').onclick = ()=>navigate(view==='meds' ? 'list' : 'meds');
 document.getElementById('backBtn').onclick = goBack;
 document.getElementById('setupSave').onclick = ()=>{
   const v = document.getElementById('setupUrl').value.trim();
