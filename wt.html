@@ -5,10 +5,12 @@
 <title>WT 檢視</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f766e">
+<link rel="manifest" href="wt.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="apple-touch-icon" href="icon-192.png">
-<link rel="icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-title" content="WT">
+<link rel="apple-touch-icon" href="wt-icon-192.png">
+<link rel="icon" href="wt-icon-192.png">
 <style>
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; padding: 0; }
@@ -84,6 +86,7 @@ main { padding: 10px 12px; max-width: 980px; margin: 0 auto; }
 <script>
 const RELAY_KEY = 'bedside-relay-url';        // 與床邊待辦共用同一把鑰匙
 const FILTER_KEY = 'wtview-attending';
+const CACHE_KEY = 'wtview-cache';
 const mainEl = document.getElementById('main');
 const metaEl = document.getElementById('meta');
 const filterBtn = document.getElementById('filterBtn');
@@ -125,6 +128,8 @@ async function load(manual){
     if(box.nonce === lastNonce && !manual) return;  // 沒新版就不重繪
     data = await decryptPayload(box.cipher, secret);
     lastNonce = box.nonce;
+    // 快取到本機:下次冷啟動(或離線)秒開上次內容
+    try{ localStorage.setItem(CACHE_KEY, JSON.stringify({data, nonce: box.nonce})); }catch(e){}
     render();
   }catch(e){
     if(!data) mainEl.innerHTML = '<div class="state">連不到中繼站,或密鑰不對。<br><button onclick="resetSetup()">重新設定網址</button></div>';
@@ -198,7 +203,21 @@ document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState==='visible') load(false);
 });
 setInterval(()=>load(false), 90000);
+
+// 冷啟動:先畫上次快取的內容(秒開),再抓最新
+try{
+  const cached = JSON.parse(localStorage.getItem(CACHE_KEY));
+  if(cached && cached.data && relayUrl()){
+    data = cached.data;
+    lastNonce = '';  // 保持空值,首次抓取必定重繪成最新版
+    render();
+  }
+}catch(e){}
 load(false);
+
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./sw.js');
+}
 </script>
 </body>
 </html>
