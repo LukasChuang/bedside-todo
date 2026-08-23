@@ -97,6 +97,27 @@ main { padding: 10px 12px; max-width: 980px; margin: 0 auto; }
 #filterMenu button + button { border-top: 1px solid #eef2f4; }
 #filterMenu button.sel { color: #0f766e; font-weight: 700; }
 #filterMenu button .n { color: #8a97a5; font-variant-numeric: tabular-nums; }
+/* ── 手機緊湊版(窄螢幕自動套用;平板維持原排版) ── */
+@media (max-width: 600px){
+  body { font-size: 14px; }
+  header { padding: calc(6px + env(safe-area-inset-top)) 10px 6px; gap: 7px; }
+  header h1 { font-size: 15px; }
+  header .meta { font-size: 12px; }
+  header button { font-size: 12.5px; padding: 4px 9px; border-radius: 7px; }
+  main { padding: 8px 8px; }
+  .lcard, .card { border-radius: 8px; margin-bottom: 8px; }
+  .lcard .bar, .card .bar { font-size: 12.5px; padding: 6px 9px; gap: 6px; }
+  .lcard .bar .go { display: none; }         /* 手機省空間,點綠條即詳細 */
+  .lcard .lbody { font-size: 13px; line-height: 1.5; padding: 6px 9px; }
+  .card .sec { padding: 6px 9px; }
+  .card .sec .lab { font-size: 10.5px; }
+  .card .sec .txt { font-size: 13px; line-height: 1.5; }
+  .medbtn { font-size: 12px; padding: 1px 8px; }
+  .newbadge { font-size: 10.5px; padding: 0 5px; }
+  .state { font-size: 14px; padding: 40px 16px; }
+  #filterMenu { top: calc(38px + env(safe-area-inset-top)); }
+  #filterMenu button { font-size: 14px; padding: 9px 14px; }
+}
 </style>
 </head>
 <body>
