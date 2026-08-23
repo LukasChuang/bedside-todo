@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>WT 檢視</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<style>
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; }
+body { background: #f2f4f4; color: #1f2937;
+  font: 16px/1.6 -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  padding-bottom: 40px; }
+header { position: sticky; top: 0; z-index: 10; background: #0f766e; color: #fff;
+  padding: calc(8px + env(safe-area-inset-top)) 14px 8px;
+  display: flex; align-items: center; gap: 10px; }
+header h1 { font-size: 17px; margin: 0; flex: none; font-weight: 700; }
+header .meta { flex: 1; font-size: 12.5px; opacity: .85; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis; }
+header button { flex: none; border: 1px solid rgba(255,255,255,.55); background: none;
+  color: #fff; border-radius: 8px; font-size: 14.5px; font-weight: 600;
+  padding: 6px 12px; cursor: pointer; }
+header button.active { background: #fff; color: #0f766e; border-color: #fff; }
+main { padding: 10px 12px; max-width: 980px; margin: 0 auto; }
+.card { background: #fff; border: 1px solid #d7dee2; border-radius: 10px;
+  overflow: hidden; margin-bottom: 12px; }
+.card .bar { background: #0f766e; color: #fff; padding: 7px 12px;
+  font-size: 15.5px; font-weight: 700; overflow-wrap: anywhere; }
+.card .sec { padding: 8px 12px; border-top: 1px dashed #e2e8ec; }
+.card .sec .lab { font-size: 12px; font-weight: 700; color: #7c8b98;
+  letter-spacing: .08em; margin-bottom: 2px; }
+.card .sec .txt { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; }
+.card .sec.todo .txt { color: #0f766e; font-weight: 500; }
+.state { text-align: center; color: #7c8b98; padding: 60px 20px; font-size: 15px; }
+.state button { display: block; margin: 18px auto 0; border: 0; border-radius: 8px;
+  background: #0f766e; color: #fff; font-size: 16px; font-weight: 700;
+  padding: 11px 22px; cursor: pointer; }
+/* 設定畫面 */
+#setup { padding: 40px 24px; max-width: 560px; margin: 0 auto; display: none; }
+#setup h2 { font-size: 18px; }
+#setup p { font-size: 14px; color: #5a6b7c; }
+#setup input { width: 100%; font-size: 15px; padding: 11px; border: 1px solid #c8d2d8;
+  border-radius: 8px; outline: none; }
+#setup input:focus { border-color: #0f766e; }
+#setup button { margin-top: 14px; border: 0; border-radius: 8px; background: #0f766e;
+  color: #fff; font-size: 16px; font-weight: 700; padding: 11px 22px; cursor: pointer; }
+/* 主治篩選選單 */
+#filterMenu { position: fixed; top: calc(44px + env(safe-area-inset-top)); right: 10px;
+  z-index: 20; background: #fff; border: 1px solid #cdd6db; border-radius: 10px;
+  box-shadow: 0 6px 22px rgba(0,0,0,.18); min-width: 210px; display: none;
+  max-height: 65vh; overflow: auto; }
+#filterMenu.open { display: block; }
+#filterMenu button { display: flex; justify-content: space-between; gap: 14px;
+  width: 100%; border: 0; background: none; text-align: left; font-size: 15.5px;
+  padding: 11px 16px; cursor: pointer; color: #1f2937; }
+#filterMenu button + button { border-top: 1px solid #eef2f4; }
+#filterMenu button.sel { color: #0f766e; font-weight: 700; }
+#filterMenu button .n { color: #8a97a5; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>WT</h1>
+  <span class="meta" id="meta">載入中…</span>
+  <button id="reloadBtn" aria-label="重新整理">↻</button>
+  <button id="filterBtn">全部</button>
+</header>
+<div id="filterMenu"></div>
+<main id="main"><div class="state">載入中…</div></main>
+
+<div id="setup">
+  <h2>第一次使用：連上中繼站</h2>
+  <p>貼上你的雲端中繼網址（含 secret，跟床邊待辦「雲端中繼網址」欄同一串）。只存在這台裝置。</p>
+  <input id="setupUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec?secret=…"
+         autocapitalize="off" autocorrect="off">
+  <button id="setupSave">開始使用</button>
+</div>
+
+<script>
+const RELAY_KEY = 'bedside-relay-url';        // 與床邊待辦共用同一把鑰匙
+const FILTER_KEY = 'wtview-attending';
+const mainEl = document.getElementById('main');
+const metaEl = document.getElementById('meta');
+const filterBtn = document.getElementById('filterBtn');
+const filterMenu = document.getElementById('filterMenu');
+let data = null;       // {patients:[...], generatedAt}
+let lastNonce = '';
+
+function relayUrl(){
+  return (localStorage.getItem(RELAY_KEY)||'')
+    .replace(/：/g,':').replace(/／/g,'/').replace(/。/g,'.').replace(/？/g,'?').replace(/＝/g,'=')
+    .replace(/\s+/g,'');
+}
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function decryptPayload(cipher, secret){
+  const parts = cipher.split('.');
+  const keyBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
+  const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['decrypt']);
+  const iv = Uint8Array.from(atob(parts[0]), c=>c.charCodeAt(0));
+  const ct = Uint8Array.from(atob(parts[1]), c=>c.charCodeAt(0));
+  const plain = await crypto.subtle.decrypt({name:'AES-GCM', iv}, key, ct);
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+async function load(manual){
+  const relay = relayUrl();
+  if(!relay){
+    document.getElementById('setup').style.display = 'block';
+    mainEl.style.display = 'none';
+    return;
+  }
+  if(manual) metaEl.textContent = '更新中…';
+  try{
+    const u = new URL(relay);
+    const secret = u.searchParams.get('secret')||'';
+    const res = await fetch(u.origin+u.pathname+'?action=wt&secret='+encodeURIComponent(secret));
+    const box = await res.json();
+    if(!box.cipher){ mainEl.innerHTML = '<div class="state">中繼站還沒有 WT 資料。<br>確認 Mac 醒著、WT 開著,一分鐘後再試。</div>'; metaEl.textContent=''; return; }
+    if(box.nonce === lastNonce && !manual) return;  // 沒新版就不重繪
+    data = await decryptPayload(box.cipher, secret);
+    lastNonce = box.nonce;
+    render();
+  }catch(e){
+    if(!data) mainEl.innerHTML = '<div class="state">連不到中繼站,或密鑰不對。<br><button onclick="resetSetup()">重新設定網址</button></div>';
+    metaEl.textContent = '(離線,顯示上次內容)';
+  }
+}
+function resetSetup(){ localStorage.removeItem(RELAY_KEY); location.reload(); }
+
+function attendings(){
+  const count = {};
+  (data.patients||[]).forEach(p=>{ count[p.attending] = (count[p.attending]||0)+1; });
+  return Object.entries(count).sort((a,b)=>a[0].localeCompare(b[0],'zh-Hant'));
+}
+
+function render(){
+  if(!data) return;
+  const sel = localStorage.getItem(FILTER_KEY) || '';
+  const list = (data.patients||[]).filter(p=>!sel || p.attending===sel);
+  filterBtn.textContent = sel || '全部';
+  filterBtn.className = sel ? 'active' : '';
+  metaEl.textContent = (data.generatedAt||'') + ' · ' + list.length + ' 床';
+  if(!list.length){
+    mainEl.innerHTML = '<div class="state">'+(sel ? '「'+esc(sel)+'」目前沒有病人' : '沒有病人資料')+'</div>';
+    return;
+  }
+  const SECTIONS = [['dx','診斷'],['assessment','ASSESSMENT'],['plan','PLAN'],['note','處置與狀況'],['todo','待辦/待追蹤']];
+  mainEl.innerHTML = list.map(p=>{
+    const secs = SECTIONS.map(([k,lab])=>{
+      const txt = (p[k]||'').trim();
+      if(!txt) return '';
+      return '<div class="sec '+(k==='todo'?'todo':'')+'"><div class="lab">'+lab+'</div><div class="txt">'+esc(txt)+'</div></div>';
+    }).join('');
+    return '<div class="card"><div class="bar">'+esc(p.info)+'</div>'+secs+'</div>';
+  }).join('');
+}
+
+function renderFilterMenu(){
+  const sel = localStorage.getItem(FILTER_KEY) || '';
+  const total = (data && data.patients||[]).length;
+  let html = '<button data-a="" class="'+(sel?'':'sel')+'">全部 <span class="n">'+total+'</span></button>';
+  attendings().forEach(([name,n])=>{
+    html += '<button data-a="'+esc(name)+'" class="'+(sel===name?'sel':'')+'">'+esc(name)+' <span class="n">'+n+'</span></button>';
+  });
+  filterMenu.innerHTML = html;
+  filterMenu.querySelectorAll('button').forEach(b=>{
+    b.onclick = ()=>{
+      localStorage.setItem(FILTER_KEY, b.dataset.a);
+      filterMenu.classList.remove('open');
+      render();
+    };
+  });
+}
+
+filterBtn.onclick = ()=>{
+  if(!data) return;
+  if(filterMenu.classList.contains('open')){ filterMenu.classList.remove('open'); return; }
+  renderFilterMenu();
+  filterMenu.classList.add('open');
+};
+document.addEventListener('click', (e)=>{
+  if(!filterMenu.contains(e.target) && e.target!==filterBtn) filterMenu.classList.remove('open');
+});
+document.getElementById('reloadBtn').onclick = ()=>load(true);
+document.getElementById('setupSave').onclick = ()=>{
+  const v = document.getElementById('setupUrl').value.trim();
+  if(!v){ alert('請貼上中繼網址'); return; }
+  localStorage.setItem(RELAY_KEY, v);
+  location.reload();
+};
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='visible') load(false);
+});
+setInterval(()=>load(false), 90000);
+load(false);
+</script>
+</body>
+</html>
