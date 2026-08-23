@@ -59,6 +59,12 @@ main { padding: 10px 12px; max-width: 980px; margin: 0 auto; }
 /* Assessment 預設收合,點標題展開 */
 .sec.collapsible .lab { cursor: pointer; user-select: none; -webkit-user-select: none; }
 .sec.collapsible:not(.open) .txt { display: none; }
+/* 處置與狀況｜待辦 並排列 */
+.pairrow { display: flex; align-items: stretch; }
+.pairrow .sec.half { flex: 1; min-width: 0; }
+.pairrow .sec.half + .sec.half { border-left: 1px dashed #e2e8ec; }
+.pairrow .sec.half.todo .txt { color: #0f766e; font-weight: 500; }
+.empty-t { color: #9aa7b4; }
 .newbadge { background: #fff; color: #c2410c; font-size: 12px; font-weight: 700;
   border-radius: 8px; padding: 1px 7px; flex: none; align-self: center; }
 .state { text-align: center; color: #7c8b98; padding: 60px 20px; font-size: 15px; }
@@ -257,16 +263,26 @@ function renderListView(list){
 }
 
 function detailSections(p){
-  const SECTIONS = [['dx','診斷'],['assessment','ASSESSMENT'],['plan','PLAN'],['note','處置與狀況'],['todo','待辦/待追蹤']];
-  return SECTIONS.map(([k,lab])=>{
+  // 最上面:處置與狀況(左)｜待辦/待追蹤(右)並排,方便一眼報告;下面才是診斷(收合)/AS/PLAN
+  const note = fmtLines(p,'note');
+  const todo = fmtLines(p,'todo');
+  let out = '';
+  if(note || todo){
+    out += '<div class="pairrow">'+
+      '<div class="sec half"><div class="lab">處置與狀況</div><div class="txt">'+(note||'<span class="empty-t">—</span>')+'</div></div>'+
+      '<div class="sec half todo"><div class="lab">待辦/待追蹤</div><div class="txt">'+(todo||'<span class="empty-t">—</span>')+'</div></div>'+
+      '</div>';
+  }
+  const SECTIONS = [['dx','診斷'],['assessment','ASSESSMENT'],['plan','PLAN']];
+  out += SECTIONS.map(([k,lab])=>{
     const html = fmtLines(p,k);
     if(!html) return '';
     if(k==='dx'){
-      // 診斷預設收合,點標題展開
       return '<div class="sec collapsible"><div class="lab">'+lab+' ▸</div><div class="txt">'+html+'</div></div>';
     }
-    return '<div class="sec '+(k==='todo'?'todo':'')+'"><div class="lab">'+lab+'</div><div class="txt">'+html+'</div></div>';
+    return '<div class="sec"><div class="lab">'+lab+'</div><div class="txt">'+html+'</div></div>';
   }).join('');
+  return out;
 }
 function bindCollapsibles(){
   mainEl.querySelectorAll('.sec.collapsible .lab').forEach(lab=>{
