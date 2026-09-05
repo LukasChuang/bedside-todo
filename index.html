@@ -102,6 +102,9 @@ main{padding:8px 12px 40px; display:flex; flex-direction:column; gap:8px}
   padding:2px 6px; cursor:pointer; line-height:1.2;
 }
 .done-sep{margin:6px 0 0; font-size:12px; color:var(--done); letter-spacing:.08em}
+.duty-sep{margin:10px 2px 0; font-size:13px; font-weight:700; color:var(--ink-soft); letter-spacing:.06em; display:flex; align-items:center; gap:8px}
+.duty-sep::after{content:""; flex:1; height:1px; background:var(--line)}
+.duty-tag{flex:none; font-size:11px; color:var(--ink-soft); border:1px solid var(--line); border-radius:4px; padding:1px 5px; margin-left:6px; vertical-align:2px}
 .syncline{padding:2px 16px 0; font-size:12px; color:var(--ink-soft); min-height:16px}
 .syncline.err{color:var(--danger)}
 .addrow{display:flex; gap:8px; margin-top:12px}
@@ -153,7 +156,7 @@ main{padding:8px 12px 40px; display:flex; flex-direction:column; gap:8px}
   border-radius:8px; font-size:15px; padding:10px 14px; cursor:pointer; font-weight:600;
 }
 .set-actions button.primary{background:var(--accent); color:var(--accent-ink); border-color:var(--accent)}
-#pastebox{
+#pastebox, #dutybox{
   width:100%; min-height:110px; font-size:15px; padding:10px; margin-top:6px;
   border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink);
   font-variant-numeric:tabular-nums;
@@ -194,6 +197,13 @@ main{padding:8px 12px 40px; display:flex; flex-direction:column; gap:8px}
   <div class="set-actions">
     <button id="btnImport">匯入取代清單</button>
     <button class="primary" id="btnImportWT">從 WT 匯入</button>
+  </div>
+  <h2>值班名單</h2>
+  <p class="hint">值班顧全病房時,把整份病房清單貼上——不在你名單裡的床會加進主畫面下方的「值班區」(你的病人自動略過)。值班床<b>不會</b>同步到 WT。重複匯入只增補、不刪除;值班結束按清除。</p>
+  <textarea id="dutybox" placeholder="05W2 12 01 王小明&#10;05W2 21 02 陳大文&#10;…"></textarea>
+  <div class="set-actions">
+    <button id="btnImportDuty">匯入/增補值班名單</button>
+    <button id="btnClearDuty">清除值班名單</button>
   </div>
   <h2>同步到 Word Table</h2>
   <p class="hint">填入 Mac 上 WT 的網址(手機需開著 Tailscale),之後每次改動會自動把各床「未完成」待辦寫進 WT 筆記欄;清空此欄位即停用。網址只存在這支手機。</p>
@@ -260,9 +270,11 @@ function scheduleSync(){
   syncTimer = setTimeout(doSync, 1500);
 }
 async function doSync(){
-  if(!state.beds.length) return;
+  // 值班床(duty)不同步——WT 沒有這些病人的資訊
+  const syncBeds = state.beds.filter(b=>!b.duty);
+  if(!syncBeds.length) return;
   const beds = [];
-  for(const b of state.beds){
+  for(const b of syncBeds){
     beds.push({
       no:b.no, name:b.name,
       nameHash: b.name ? await sha256hex(b.name) : '',
@@ -378,12 +390,24 @@ function render(){
     const n = b.todos.filter(t=>!t.done).length;
     if(n){pendBeds++; pendItems+=n;}
   });
+  const dutyBeds = state.beds.filter(b=>b.duty)
+    .slice().sort((a,b)=>a.no.localeCompare(b.no,'en',{numeric:true}));
+  const dutyNote = dutyBeds.length ? ` · 值班區 ${dutyBeds.length} 床` : '';
   document.getElementById('summary').innerHTML = pendItems
-    ? `<b>${pendBeds}</b> 床待辦,共 <b>${pendItems}</b> 項`
-    : `<span class="all-clear">✓ 全部完成,目前沒有待辦</span>`;
+    ? `<b>${pendBeds}</b> 床待辦,共 <b>${pendItems}</b> 項${dutyNote}`
+    : `<span class="all-clear">✓ 全部完成,目前沒有待辦</span>${dutyNote}`;
 
   listEl.innerHTML='';
-  state.beds.forEach((b,bi)=>{
+  state.beds.filter(b=>!b.duty).forEach(b=>renderBedCard(b));
+  if(dutyBeds.length){
+    const sep = document.createElement('div');
+    sep.className = 'duty-sep';
+    sep.textContent = '值班 · 其他病人(不同步 WT)';
+    listEl.appendChild(sep);
+    dutyBeds.forEach(b=>renderBedCard(b));
+  }
+}
+function renderBedCard(b){
     const pend = b.todos.filter(t=>!t.done);
     const done = b.todos.filter(t=>t.done);
     const card = document.createElement('div');
@@ -392,12 +416,12 @@ function render(){
     card.innerHTML = `
       <div class="bed-head">
         <div class="bed-no">${room}-${bed}</div>
-        <div class="bed-name">${esc(b.name)}</div>
+        <div class="bed-name">${esc(b.name)}${b.duty?'<span class="duty-tag">值</span>':''}</div>
         <div class="badge ${pend.length?'':'zero'}">${pend.length||'—'}</div>
       </div>
       <div class="bed-body">
-        ${pend.map(t=>todoHtml(bi,t)).join('')}
-        ${done.length?`<div class="done-sep">已完成</div>`+done.map(t=>todoHtml(bi,t)).join(''):''}
+        ${pend.map(t=>todoHtml(t)).join('')}
+        ${done.length?`<div class="done-sep">已完成</div>`+done.map(t=>todoHtml(t)).join(''):''}
         <div class="addrow">
           <input type="text" placeholder="待辦事項…" enterkeyhint="done">
           <button>加入</button>
@@ -444,9 +468,8 @@ function render(){
     const cd = card.querySelector('.clear-done');
     if(cd) cd.onclick = ()=>{ b.todos=b.todos.filter(t=>!t.done); save(); render(); };
     listEl.appendChild(card);
-  });
 }
-function todoHtml(bi,t){
+function todoHtml(t){
   return `<div class="todo ${t.done?'done':''}" data-id="${t.id}">
     <button class="tick" aria-label="${t.done?'標回未完成':'完成'}"></button>
     <div class="txt">${esc(t.text)}</div>
@@ -460,7 +483,7 @@ function esc(s){ return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt
 const settingsEl = document.getElementById('settings');
 const bedEditor = document.getElementById('bedEditor');
 function openSettings(){
-  renderEditor(state.beds.map(b=>({no:b.no,name:b.name})));
+  renderEditor(state.beds.filter(b=>!b.duty).map(b=>({no:b.no,name:b.name})));
   document.getElementById('syncUrlInput').value = localStorage.getItem(SYNC_KEY)||'';
   document.getElementById('relayUrlInput').value = localStorage.getItem(RELAY_KEY)||'';
   settingsEl.classList.add('open');
@@ -518,12 +541,16 @@ document.getElementById('btnImport').onclick = ()=>{
   settingsEl.classList.remove('open');
 };
 function applyBedList(rows){
+  // 只取代「我的病人」;值班床(duty)保留不動。
+  // 值班床變成我的病人(同床號同姓名)→ 待辦跟著轉正、值班區那張移除。
   const old = Object.fromEntries(state.beds.map(b=>[b.no,b]));
-  state.beds = rows.map(r=>({
+  const myBeds = rows.map(r=>({
     no:r.no, name:r.name,
     // 同床號且同姓名 → 保留原待辦;換病人 → 清空
     todos:(old[r.no] && old[r.no].name===r.name) ? old[r.no].todos : [],
   }));
+  const myNos = new Set(myBeds.map(b=>b.no));
+  state.beds = myBeds.concat(state.beds.filter(b=>b.duty && !myNos.has(b.no)));
   save(); render();
 }
 document.getElementById('btnImportWT').onclick = async ()=>{
@@ -552,6 +579,40 @@ document.getElementById('btnImportWT').onclick = async ()=>{
   }finally{
     btn.disabled = false; btn.textContent = '從 WT 匯入';
   }
+};
+document.getElementById('btnImportDuty').onclick = ()=>{
+  const lines = document.getElementById('dutybox').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  const rows=[];
+  for(const l of lines){
+    const m = l.match(/(\d{2})[\s-]+(\d{2})\s+([^\s\d]+)/);
+    if(m) rows.push({no:m[1]+'-'+m[2], name:m[3].replace(/\[.*?\]/g,'')});
+  }
+  if(!rows.length){ alert('看不懂貼上的內容,每行需含「室 床 姓名」'); return; }
+  const byNo = Object.fromEntries(state.beds.map(b=>[b.no,b]));
+  let added=0, replaced=0, mine=0;
+  for(const r of rows){
+    const existing = byNo[r.no];
+    if(existing && !existing.duty){ mine++; continue; }         // 我的病人,主清單已有
+    if(existing){                                                // 已在值班區
+      if(existing.name!==r.name){ existing.name=r.name; existing.todos=[]; replaced++; } // 換病人
+      continue;
+    }
+    const nb = {no:r.no, name:r.name, duty:true, todos:[]};
+    state.beds.push(nb); byNo[r.no]=nb; added++;
+  }
+  save(); render();
+  document.getElementById('dutybox').value='';
+  settingsEl.classList.remove('open');
+  alert('值班區:新增 '+added+' 床'
+    +(replaced?'、換人 '+replaced+' 床':'')
+    +(mine?'\n(你的病人 '+mine+' 床已在主清單,略過)':''));
+};
+document.getElementById('btnClearDuty').onclick = ()=>{
+  const n = state.beds.filter(b=>b.duty).length;
+  if(!n){ alert('目前沒有值班床'); return; }
+  if(!confirm('清除全部 '+n+' 個值班床(含其待辦)?')) return;
+  state.beds = state.beds.filter(b=>!b.duty);
+  save(); render(); settingsEl.classList.remove('open');
 };
 document.getElementById('btnClearDoneAll').onclick = ()=>{
   state.beds.forEach(b=>b.todos=b.todos.filter(t=>!t.done));
