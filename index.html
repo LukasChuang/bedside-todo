@@ -43,6 +43,27 @@ header .duty-btn{
   padding:3px 11px; font-size:13px; font-weight:700; color:var(--accent); background:none;
 }
 header .duty-btn.on{background:var(--accent); color:var(--accent-ink)}
+header .memo-btn{
+  align-self:center; border:1px solid var(--line); border-radius:14px;
+  padding:3px 11px; font-size:13px; font-weight:700; color:var(--ink-soft); background:none;
+}
+#memo{
+  position:fixed; inset:0; z-index:21; background:var(--ground);
+  display:none; flex-direction:column;
+  padding:calc(10px + env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+}
+#memo.open{display:flex}
+#memo .memo-head{display:flex; align-items:center; gap:10px; padding:0 4px 8px}
+#memo .memo-head h2{font-size:18px; margin:0; flex:1}
+#memo .memo-head .st{font-size:12px; color:var(--ink-soft)}
+#memo .memo-head button{
+  border:0; background:none; color:var(--accent); font-size:15px; font-weight:600; padding:6px 4px;
+}
+#memoText{
+  flex:1; width:100%; font-size:16px; line-height:1.55; padding:12px;
+  border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--ink);
+  resize:none; outline:none;
+}
 header .spacer{flex:1}
 header button{
   border:0; background:none; color:var(--accent); font-size:15px; font-weight:600;
@@ -181,6 +202,7 @@ main{padding:8px 12px 40px; display:flex; flex-direction:column; gap:8px}
 <header>
   <h1>床邊待辦</h1>
   <button id="btnDuty" class="duty-btn" title="值班:顯示全病房病人(當天預設)">值班</button>
+  <button id="btnMemo" class="memo-btn" title="雜記:自由打字,和電腦主畫面「雜記」互相同步">雜記</button>
   <span class="date" id="hdrDate"></span>
   <span class="spacer"></span>
   <button id="btnSettings">床位管理</button>
@@ -188,6 +210,15 @@ main{padding:8px 12px 40px; display:flex; flex-direction:column; gap:8px}
 <div class="summary" id="summary"></div>
 <div class="syncline" id="syncStatus"></div>
 <main id="list"></main>
+
+<div id="memo">
+  <div class="memo-head">
+    <button id="btnMemoBack">‹ 返回</button>
+    <h2>雜記</h2>
+    <span class="st" id="memoStatus"></span>
+  </div>
+  <textarea id="memoText" placeholder="想到什麼就打…(和電腦主畫面「雜記」互相同步,以較新的為準)"></textarea>
+</div>
 
 <div id="settings">
   <h2>床位管理</h2>
@@ -288,6 +319,9 @@ async function doSync(){
       todos:b.todos.map(t=>({text:t.text, done:!!t.done})),
     });
   }
+  // 雜記搭同一份推送(假床 no:"memo";中繼站只透傳 beds 欄位)
+  const memo = loadMemo();
+  if(memo.at) beds.push({no:'memo', memo:memo.text, memoAt:memo.at, nameHash:'', todos:[]});
   // 1) 雲端中繼優先(院內擋 Tailscale,雲端到處都通;payload 不帶姓名明文)
   const relay = relayUrl();
   if(relay){
@@ -295,7 +329,7 @@ async function doSync(){
     try{
       const u = new URL(relay);
       const secret = u.searchParams.get('secret')||'';
-      const relayBeds = beds.map(b=>({no:b.no, nameHash:b.nameHash, todos:b.todos, duty:b.duty}));
+      const relayBeds = beds.map(b=>b.no==='memo' ? b : ({no:b.no, nameHash:b.nameHash, todos:b.todos, duty:b.duty}));
       const res = await fetch(u.origin+u.pathname, {
         method:'POST',
         headers:{'Content-Type':'text/plain'},
@@ -359,11 +393,12 @@ async function fetchRelayRoster(){
   if(!data.cipher) return null;
   const plain = await decryptRoster(data.cipher, secret);
   // duty:WT「匯入值班病人」存的全病房名單({beds,date}),與床位名單同一份密文
-  return {beds:(plain.beds||[]).filter(b=>b&&b.no), nonce:String(data.nonce||''), duty:plain.duty||null};
+  return {beds:(plain.beds||[]).filter(b=>b&&b.no), nonce:String(data.nonce||''), duty:plain.duty||null, memo:plain.memo||null};
 }
 async function checkRosterUpdate(){
   try{
     const r = await fetchRelayRoster();
+    if(r && r.memo) applyRemoteMemo(r.memo);
     if(!r || !r.beds.length) return;
     // 以「我的病人」名單內容判重(密文的 nonce 會因值班名單變動而換,不能拿來判)
     const sig = JSON.stringify(r.beds);
@@ -373,6 +408,54 @@ async function checkRosterUpdate(){
     }
     localStorage.setItem(ROSTER_NONCE_KEY, sig);
   }catch(e){ /* 離線或尚未設定中繼,安靜跳過 */ }
+}
+
+/* ── 雜記 ───────────────────────
+   自由文字,存 localStorage {text, at};打字停 1.5 秒 → 隨待辦同步送出(假床 no:"memo")。
+   Mac 端的修改搭在加密名單裡回來(fetchRelayRoster().memo),at 較新才覆蓋本機。 */
+const MEMO_KEY = 'bedside-memo';
+function loadMemo(){ try{ const m = JSON.parse(localStorage.getItem(MEMO_KEY)||'null'); if(m && typeof m.text==='string') return m; }catch(e){} return {text:'', at:0}; }
+function saveMemo(m){ localStorage.setItem(MEMO_KEY, JSON.stringify(m)); }
+const memoEl = document.getElementById('memo');
+const memoText = document.getElementById('memoText');
+const memoStatus = document.getElementById('memoStatus');
+function fmtMemoAt(at){ return at ? '更新 '+fmtTs(at) : ''; }
+function openMemo(){
+  const m = loadMemo();
+  memoText.value = m.text; memoStatus.textContent = fmtMemoAt(m.at);
+  memoEl.classList.add('open'); memoText.focus();
+  pullMemo();
+}
+document.getElementById('btnMemo').onclick = openMemo;
+document.getElementById('btnMemoBack').onclick = ()=>{ memoEl.classList.remove('open'); };
+let memoTimer = null;
+memoText.addEventListener('input', ()=>{
+  clearTimeout(memoTimer);
+  memoTimer = setTimeout(()=>{
+    const m = {text: memoText.value, at: Date.now()};
+    saveMemo(m); memoStatus.textContent = fmtMemoAt(m.at);
+    scheduleSync();
+  }, 1500);
+});
+function applyRemoteMemo(remote){
+  if(!remote || typeof remote.text!=='string' || !remote.at) return false;
+  const local = loadMemo();
+  if(Number(remote.at) <= Number(local.at||0)) return false;
+  const m = {text: remote.text, at: Number(remote.at)};
+  saveMemo(m);
+  if(memoEl.classList.contains('open') && document.activeElement!==memoText){
+    memoText.value = m.text; memoStatus.textContent = fmtMemoAt(m.at)+'(來自電腦)';
+  }
+  return true;
+}
+async function pullMemo(){
+  try{
+    const r = await fetchRelayRoster();
+    if(r && r.memo){ applyRemoteMemo(r.memo); return; }
+  }catch(e){}
+  if(syncUrl()){
+    try{ const res = await fetch(syncUrl()+'/api/memo'); applyRemoteMemo(await res.json()); }catch(e){}
+  }
 }
 
 /* ── 值班模式 ───────────────────────
