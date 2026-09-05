@@ -276,10 +276,12 @@ function scheduleSync(){
   syncTimer = setTimeout(doSync, 1500);
 }
 async function doSync(){
-  // 值班床帶 duty:true 一起送:WT 端不進大表、另存給主畫面「待辦」面板顯示
-  if(!state.beds.length) return;
+  // 送出的床＝面板要顯示的床:值班中送全病房(值班床帶 duty:true)、非值班中只送自己的病人。
+  // WT 端一律不進大表,存手機待辦檔給主畫面「待辦」面板顯示
+  const syncBeds = state.beds.filter(b=>dutyOn() || !b.duty);
+  if(!syncBeds.length) return;
   const beds = [];
-  for(const b of state.beds){
+  for(const b of syncBeds){
     beds.push({
       no:b.no, name:b.name, duty:!!b.duty,
       nameHash: b.name ? await sha256hex(b.name) : '',
@@ -413,7 +415,7 @@ async function refreshDutyRoster(interactive){
     if(interactive) alert('拿不到值班名單。\n請先在 WT 按「匯入值班病人」(醫院主畫面病房切「全病房」),雲端約 1 分鐘後可取;或確認直連網址。');
     return;
   }
-  const n = applyDutyRoster(r.beds);
+  const n = applyDutyRoster(r.beds);   // applyDutyRoster 內含 save() → 會排程同步(面板跟著擴)
   const stale = r.date && r.date!==isoToday();
   const dateTxt = r.date ? ' · '+r.date.slice(5).replace('-','/') : '';
   setSyncStatus('值班名單('+r.src+dateTxt+')共 '+n+' 床'+(stale?' ⚠ 不是今天的,請在 WT 重按「匯入值班病人」':''), !!stale);
@@ -421,7 +423,7 @@ async function refreshDutyRoster(interactive){
 }
 const dutyBtn = document.getElementById('btnDuty');
 dutyBtn.onclick = async ()=>{
-  if(dutyOn()){ localStorage.removeItem(DUTY_MODE_KEY); render(); return; }
+  if(dutyOn()){ localStorage.removeItem(DUTY_MODE_KEY); render(); scheduleSync(); return; }  // 切回自己的病人也要同步(面板跟著縮)
   localStorage.setItem(DUTY_MODE_KEY, isoToday());
   render();
   dutyBtn.disabled = true;
