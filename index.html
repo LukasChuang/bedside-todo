@@ -469,14 +469,12 @@ function render(){
     : `<span class="all-clear">✓ 全部完成,目前沒有待辦</span>${dutyNote}`;
 
   listEl.innerHTML='';
-  state.beds.filter(b=>!b.duty).forEach(b=>renderBedCard(b));
-  if(dutyBeds.length){
-    const sep = document.createElement('div');
-    sep.className = 'duty-sep';
-    sep.textContent = '值班 · 其他病人(不同步 WT)';
-    listEl.appendChild(sep);
-    dutyBeds.forEach(b=>renderBedCard(b));
-  }
+  // 值班模式:我的病人＋值班床合成一份、照床號排(值班床靠「值」標記區分);
+  // 非值班模式:只列我的病人,維持原順序
+  const shown = showDuty
+    ? state.beds.slice().sort((a,b)=>a.no.localeCompare(b.no,'en',{numeric:true}))
+    : state.beds.filter(b=>!b.duty);
+  shown.forEach(b=>renderBedCard(b));
 }
 function renderBedCard(b){
     const pend = b.todos.filter(t=>!t.done);
