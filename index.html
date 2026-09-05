@@ -276,13 +276,12 @@ function scheduleSync(){
   syncTimer = setTimeout(doSync, 1500);
 }
 async function doSync(){
-  // 值班床(duty)不同步——WT 沒有這些病人的資訊
-  const syncBeds = state.beds.filter(b=>!b.duty);
-  if(!syncBeds.length) return;
+  // 值班床帶 duty:true 一起送:WT 端不進大表、另存給主畫面「待辦」面板顯示
+  if(!state.beds.length) return;
   const beds = [];
-  for(const b of syncBeds){
+  for(const b of state.beds){
     beds.push({
-      no:b.no, name:b.name,
+      no:b.no, name:b.name, duty:!!b.duty,
       nameHash: b.name ? await sha256hex(b.name) : '',
       todos:b.todos.map(t=>({text:t.text, done:!!t.done})),
     });
@@ -294,7 +293,7 @@ async function doSync(){
     try{
       const u = new URL(relay);
       const secret = u.searchParams.get('secret')||'';
-      const relayBeds = beds.map(b=>({no:b.no, nameHash:b.nameHash, todos:b.todos}));
+      const relayBeds = beds.map(b=>({no:b.no, nameHash:b.nameHash, todos:b.todos, duty:b.duty}));
       const res = await fetch(u.origin+u.pathname, {
         method:'POST',
         headers:{'Content-Type':'text/plain'},
