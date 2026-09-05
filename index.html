@@ -38,6 +38,11 @@ header{
 }
 header h1{font-size:20px; font-weight:700; margin:0; letter-spacing:.02em}
 header .date{color:var(--ink-soft); font-size:14px}
+header .duty-btn{
+  align-self:center; border:1px solid var(--accent); border-radius:14px;
+  padding:3px 11px; font-size:13px; font-weight:700; color:var(--accent); background:none;
+}
+header .duty-btn.on{background:var(--accent); color:var(--accent-ink)}
 header .spacer{flex:1}
 header button{
   border:0; background:none; color:var(--accent); font-size:15px; font-weight:600;
@@ -175,6 +180,7 @@ main{padding:8px 12px 40px; display:flex; flex-direction:column; gap:8px}
 
 <header>
   <h1>床邊待辦</h1>
+  <button id="btnDuty" class="duty-btn" title="值班:顯示全病房病人(當天預設)">值班</button>
   <span class="date" id="hdrDate"></span>
   <span class="spacer"></span>
   <button id="btnSettings">床位管理</button>
@@ -322,7 +328,11 @@ async function doSync(){
   setSyncStatus('⚠ 同步失敗:雲端與直連都連不上', true);
 }
 document.addEventListener('visibilitychange', ()=>{
-  if(document.visibilityState==='visible'){ scheduleSync(); checkRosterUpdate(); }
+  if(document.visibilityState==='visible'){
+    scheduleSync(); checkRosterUpdate();
+    render();                                   // 跨日回到前景:值班模式自動關閉
+    if(dutyOn()) refreshDutyRoster(false);      // 值班中:安靜刷新全病房名單
+  }
 });
 
 /* ── 床位名單自動更新(WT→手機,經雲端中繼) ───────────
@@ -347,19 +357,77 @@ async function fetchRelayRoster(){
   const data = await res.json();
   if(!data.cipher) return null;
   const plain = await decryptRoster(data.cipher, secret);
-  return {beds:(plain.beds||[]).filter(b=>b&&b.no), nonce:String(data.nonce||'')};
+  // duty:WT「匯入值班病人」存的全病房名單({beds,date}),與床位名單同一份密文
+  return {beds:(plain.beds||[]).filter(b=>b&&b.no), nonce:String(data.nonce||''), duty:plain.duty||null};
 }
 async function checkRosterUpdate(){
   try{
     const r = await fetchRelayRoster();
     if(!r || !r.beds.length) return;
-    if(localStorage.getItem(ROSTER_NONCE_KEY)===r.nonce) return;
+    // 以「我的病人」名單內容判重(密文的 nonce 會因值班名單變動而換,不能拿來判)
+    const sig = JSON.stringify(r.beds);
+    if(localStorage.getItem(ROSTER_NONCE_KEY)===sig) return;
     if(confirm('WT 床位名單有更新('+r.beds.length+' 床),要匯入嗎?\n(同床號同病人的待辦會保留)')){
       applyBedList(r.beds);
     }
-    localStorage.setItem(ROSTER_NONCE_KEY, r.nonce);
+    localStorage.setItem(ROSTER_NONCE_KEY, sig);
   }catch(e){ /* 離線或尚未設定中繼,安靜跳過 */ }
 }
+
+/* ── 值班模式 ───────────────────────
+   標題旁「值班」鈕:開啟後顯示全病房(我的病人＋值班區),當天內開 app 都預設開啟,
+   隔天自動關閉。開啟時從 WT 取值班名單(雲端中繼優先、直連備援)整份取代值班區;
+   同床同名的值班床保留待辦,自己的病人一律略過。 */
+const DUTY_MODE_KEY = 'bedside-duty-date';
+function isoToday(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function dutyOn(){ return localStorage.getItem(DUTY_MODE_KEY)===isoToday(); }
+function applyDutyRoster(rows){
+  const myNos = new Set(state.beds.filter(b=>!b.duty).map(b=>b.no));
+  const oldDuty = Object.fromEntries(state.beds.filter(b=>b.duty).map(b=>[b.no,b]));
+  const duty = [];
+  for(const r of rows){
+    if(!r || !r.no || myNos.has(r.no)) continue;
+    const prev = oldDuty[r.no];
+    duty.push({no:r.no, name:r.name||'', duty:true, todos:(prev && prev.name===(r.name||''))?prev.todos:[]});
+  }
+  state.beds = state.beds.filter(b=>!b.duty).concat(duty);
+  save(); render();
+  return duty.length;
+}
+async function fetchDutyRoster(){
+  try{
+    const r = await fetchRelayRoster();
+    if(r && r.duty && Array.isArray(r.duty.beds) && r.duty.beds.length) return {beds:r.duty.beds, date:r.duty.date||'', src:'雲端'};
+  }catch(e){}
+  if(syncUrl()){
+    try{
+      const res = await fetch(syncUrl()+'/api/duty-patients');
+      const d = await res.json();
+      if(Array.isArray(d.beds) && d.beds.length) return {beds:d.beds, date:d.date||'', src:'直連'};
+    }catch(e){}
+  }
+  return null;
+}
+async function refreshDutyRoster(interactive){
+  const r = await fetchDutyRoster();
+  if(!r){
+    if(interactive) alert('拿不到值班名單。\n請先在 WT 按「匯入值班病人」(醫院主畫面病房切「全病房」),雲端約 1 分鐘後可取;或確認直連網址。');
+    return;
+  }
+  const n = applyDutyRoster(r.beds);
+  const stale = r.date && r.date!==isoToday();
+  const dateTxt = r.date ? ' · '+r.date.slice(5).replace('-','/') : '';
+  setSyncStatus('值班名單('+r.src+dateTxt+')共 '+n+' 床'+(stale?' ⚠ 不是今天的,請在 WT 重按「匯入值班病人」':''), !!stale);
+  if(interactive && stale) alert('注意:WT 的值班名單是 '+r.date+' 存的,不是今天的。\n請在 WT 按「匯入值班病人」更新後再按一次「值班」。');
+}
+const dutyBtn = document.getElementById('btnDuty');
+dutyBtn.onclick = async ()=>{
+  if(dutyOn()){ localStorage.removeItem(DUTY_MODE_KEY); render(); return; }
+  localStorage.setItem(DUTY_MODE_KEY, isoToday());
+  render();
+  dutyBtn.disabled = true;
+  try{ await refreshDutyRoster(true); } finally{ dutyBtn.disabled = false; }
+};
 
 function todayStr(d=new Date()){ return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
 function fmtTs(ts){
@@ -385,13 +453,16 @@ function render(){
     return;
   }
 
+  const showDuty = dutyOn();
+  dutyBtn.classList.toggle('on', showDuty);
+  dutyBtn.textContent = showDuty ? '值班中' : '值班';
   let pendBeds=0, pendItems=0;
-  state.beds.forEach(b=>{
+  state.beds.filter(b=>showDuty || !b.duty).forEach(b=>{
     const n = b.todos.filter(t=>!t.done).length;
     if(n){pendBeds++; pendItems+=n;}
   });
-  const dutyBeds = state.beds.filter(b=>b.duty)
-    .slice().sort((a,b)=>a.no.localeCompare(b.no,'en',{numeric:true}));
+  const dutyBeds = showDuty ? state.beds.filter(b=>b.duty)
+    .slice().sort((a,b)=>a.no.localeCompare(b.no,'en',{numeric:true})) : [];
   const dutyNote = dutyBeds.length ? ` · 值班區 ${dutyBeds.length} 床` : '';
   document.getElementById('summary').innerHTML = pendItems
     ? `<b>${pendBeds}</b> 床待辦,共 <b>${pendItems}</b> 項${dutyNote}`
@@ -627,6 +698,7 @@ document.getElementById('btnWipe').onclick = ()=>{
 render();
 scheduleSync();
 checkRosterUpdate();
+if(dutyOn()) refreshDutyRoster(false);   // 當天已開值班 → 開 app 預設全病房並刷新名單
 
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('./sw.js');
